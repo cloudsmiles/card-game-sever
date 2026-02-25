@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>卡牌游戏 - 斗地主客户端</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .card {
+            transition: all 0.2s;
+            cursor: pointer;
+        }
+
+        .card:hover {
+            transform: translateY(-8px) scale(1.05);
+            box-shadow: 0 10px 15px rgba(0, 0, 0, 0.3);
+        }
+
+        .selected {
+            border: 2px solid blue !important;
+            transform: translateY(-12px);
+        }
+
+        .my-turn {
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.7;
+            }
+        }
+    </style>
+</head>
+
+<body class="bg-gray-900 text-white min-h-screen">
+    <div class="max-w-6xl mx-auto p-6">
+        <h1 class="text-4xl font-bold text-center mb-8">🎴 斗地主实时对战</h1>
+
+        <!-- 连接区 -->
+        <div id="connectPanel" class="bg-gray-800 p-6 rounded-xl mb-8">
+            <div class="flex gap-4 items-end">
+                <div class="flex-1">
+                    <label class="block text-sm mb-1">你的昵称</label>
+                    <input id="playerName" type="text" value="玩家1"
+                        class="w-full bg-gray-700 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <button onclick="connect()" class="bg-green-600 hover:bg-green-700 px-8 py-3 rounded-lg font-semibold">
+                    连接服务器
+                </button>
+            </div>
+            <div id="status" class="mt-3 text-sm text-gray-400"></div>
+        </div>
+
+        <!-- 房间操作区 -->
+        <div id="roomPanel" class="hidden bg-gray-800 p-6 rounded-xl mb-8">
+            <div class="flex gap-6">
+                <button onclick="createRoom()" id="createBtn"
+                    class="flex-1 bg-blue-600 hover:bg-blue-700 py-4 rounded-xl font-bold text-lg flex items-center justify-center gap-2">
+                    🆕 创建新房间（斗地主）
+                </button>
+
+                <div class="flex-1 flex gap-3">
+                    <input id="roomIdInput" placeholder="输入房间号"
+                        class="flex-1 bg-gray-700 rounded-xl px-4 focus:outline-none focus:ring-2 focus:ring-purple-500">
+                    <button onclick="joinRoom()" class="bg-purple-600 hover:bg-purple-700 px-8 rounded-xl font-bold">
+                        加入房间
+                    </button>
+                </div>
+            </div>
+            <div id="roomInfo" class="mt-4 text-center text-lg font-semibold hidden">
+                当前房间：<span id="currentRoomId" class="text-green-400"></span>
+                <button onclick="copyRoomId()" class="ml-4 bg-gray-600 px-4 py-1 rounded-lg text-sm">复制</button>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- 游戏区 -->
+            <div class="lg:col-span-2 bg-gray-800 rounded-2xl p-6">
+                <div class="flex justify-between items-center mb-6">
+                    <div>
+                        <span class="text-sm text-gray-400">当前回合：</span>
+                        <span id="currentTurn" class="font-bold text-xl"></span>
+                    </div>
+                    <div>
+                        <span class="text-sm text-gray-400">上家出的牌：</span>
+                        <span id="lastCard" class="font-mono text-3xl font-bold text-yellow-400"></span>
+                    </div>
+                    <div>
+                        <span class="text-sm text-gray-400">阶段：</span>
+                        <span id="phase" class="font-bold text-xl"></span>
+                    </div>
+                    <div>
+                        <span class="text-sm text-gray-400">地主：</span>
+                        <span id="landlord" class="font-bold text-xl"></span>
+                    </div>
+                </div>
+
+                <!-- 手牌区 -->
+                <div class="mb-4">
+                    <div class="text-sm text-gray-400 mb-2">你的手牌（点击选择）</div>
+                    <div id="myHand" class="flex gap-1 flex-wrap overflow-x-auto"></div>
+                </div>
+
+                <!-- 操作区 -->
+                <div id="actionArea" class="flex gap-4 mb-4"></div>
+
+                <div id="gameLog" class="bg-black/50 h-48 overflow-y-auto rounded-xl p-4 text-sm font-mono"></div>
+            </div>
+
+            <!-- 右侧：玩家列表 + 聊天 -->
+            <div class="space-y-6">
+                <div class="bg-gray-800 rounded-2xl p-6">
+                    <h3 class="font-bold mb-4 flex items-center gap-2">
+                        👥 在线玩家 (<span id="playerCount">0</span>)
+                    </h3>
+                    <div id="playersList" class="space-y-2"></div>
+                </div>
+
+                <div class="bg-gray-800 rounded-2xl p-6 flex flex-col h-96">
+                    <h3 class="font-bold mb-4">💬 聊天室</h3>
+                    <div id="chatMessages" class="flex-1 overflow-y-auto space-y-3 text-sm"></div>
+
+                    <div class="flex gap-2 mt-4">
+                        <input id="chatInput" placeholder="输入消息..."
+                            class="flex-1 bg-gray-700 rounded-xl px-4 py-3 focus:outline-none"
+                            onkeypress="if(event.key==='Enter') sendChat()">
+                        <button onclick="sendChat()" class="bg-indigo-600 hover:bg-indigo-700 px-6 rounded-xl">
+                            发送
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let playerID = '';
+        let currentRoomID = '';
+        let selectedCards = [];
+        let isCreating = false;
+
+        function log(msg, color = 'text-gray-300') {
+            const div = document.getElementById('gameLog');
+            div.innerHTML += `<span class="${color}">[${new Date().toLocaleTimeString()}] ${msg}</span><br>`;
+            div.scrollTop = div.scrollHeight;
+        }
+
+        function addChat(name, content) {
+            const div = document.getElementById('chatMessages');
+            div.innerHTML += `
+        <div class="flex gap-2">
+          <span class="text-blue-400 font-medium">${name}：</span>
+          <span>${content}</span>
+        </div>`;
+            div.scrollTop = div.scrollHeight;
+        }
+
+        function connect() {
+            const name = document.getElementById('playerName').value.trim();
+            if (!name) return alert('请输入昵称');
+
+            playerID = name;
+            const url = `ws://localhost:8080/ws?player=${encodeURIComponent(name)}`;
+
+            ws = new WebSocket(url);
+
+            ws.onopen = () => {
+                document.getElementById('status').innerHTML = '✅ 已连接到服务器';
+                document.getElementById('connectPanel').classList.add('hidden');
+                document.getElementById('roomPanel').classList.remove('hidden');
+                log('WebSocket 连接成功', 'text-green-400');
+            };
+
+            ws.onmessage = (e) => {
+                const msg = JSON.parse(e.data);
+                handleMessage(msg);
+            };
+
+            ws.onclose = () => {
+                log('连接已断开', 'text-red-400');
+            };
+        }
+
+        function handleMessage(msg) {
+            if (msg.type === 'error') {
+                log(`❌ ${msg.data.error || '未知错误'}`, 'text-red-400');
+                alert(`错误：${msg.data.error || '未知错误'}`);
+                return;
+            }
+
+            if (msg.type === 'broadcast') {
+                const data = msg.data || {};
+
+                if (data.room_id) {
+                    currentRoomID = data.room_id;
+                    document.getElementById('roomInfo').classList.remove('hidden');
+                    document.getElementById('currentRoomId').textContent = currentRoomID;
+                    log(`🎉 已成功进入房间 ${currentRoomID}`, 'text-green-400');
+                    return;
+                }
+
+                if (data.event === 'chat') {
+                    addChat(data.content.player, data.content.content);
+                } else if (data.event === 'game_started' || data.event === 'state_update') {
+                    updateGameState(data.content);
+                } else if (data.event === 'game_over') {
+                    log(`🎉 游戏结束！${data.content.winner}`, 'text-yellow-400');
+                    alert(`游戏结束！${data.content.winner}`);
+                }
+            }
+        }
+
+        function updateGameState(state) {
+            document.getElementById('phase').textContent = state.phase === 'call' ? '叫地主' : '出牌';
+            document.getElementById('currentTurn').textContent = state.current || '等待中';
+            document.getElementById('currentTurn').classList.toggle('text-green-400', state.current === playerID);
+            document.getElementById('currentTurn').classList.toggle('my-turn', state.current === playerID);
+            document.getElementById('landlord').textContent = state.landlord || '未定';
+            document.getElementById('lastCard').textContent = state.last_play ? state.last_play.Type + ' (' + state.last_play.Cards.map(c => valueToStr(c.Value)).join(', ') + ')' : '无';
+
+            const list = document.getElementById('playersList');
+            list.innerHTML = '';
+            state.players.forEach(p => {
+                const isMe = p === playerID ? ' (我)' : '';
+                const isLandlord = p === state.landlord ? ' (地主)' : '';
+                list.innerHTML += `
+          <div class="flex justify-between bg-gray-700 px-4 py-2 rounded-lg">
+            <span>${p}${isMe}${isLandlord}</span>
+            <span class="${p === state.current ? 'text-green-400' : ''}">●</span>
+          </div>`;
+            });
+            document.getElementById('playerCount').textContent = state.players.length;
+
+            if (state.hands && state.hands[playerID + '_hand']) {
+                renderMyHand(state.hands[playerID + '_hand']);
+            }
+
+            const actionArea = document.getElementById('actionArea');
+            actionArea.innerHTML = '';
+            if (state.current !== playerID) return;
+
+            if (state.phase === 'call') {
+                actionArea.innerHTML = `
+          <button onclick="callLandlord(0)" class="bg-gray-600 hover:bg-gray-500 px-6 py-2 rounded-xl">不叫</button>
+          <button onclick="callLandlord(1)" class="bg-blue-600 hover:bg-blue-500 px-6 py-2 rounded-xl">叫1分</button>
+          <button onclick="callLandlord(2)" class="bg-blue-600 hover:bg-blue-500 px-6 py-2 rounded-xl">叫2分</button>
+          <button onclick="callLandlord(3)" class="bg-blue-600 hover:bg-blue-500 px-6 py-2 rounded-xl">叫3分</button>`;
+            } else if (state.phase === 'play') {
+                actionArea.innerHTML = `
+          <button onclick="playSelected()" class="bg-green-600 hover:bg-green-700 px-6 py-2 rounded-xl">出牌</button>
+          <button onclick="passTurn()" class="bg-red-600 hover:bg-red-700 px-6 py-2 rounded-xl">不出</button>`;
+            }
+        }
+
+        function renderMyHand(hand) {
+            const container = document.getElementById('myHand');
+            container.innerHTML = '';
+            selectedCards = [];
+            hand.sort((a, b) => a - b); // 排序手牌
+            hand.forEach(v => {
+                const el = document.createElement('div');
+                el.className = `card bg-white text-black w-12 h-20 flex items-center justify-center text-2xl font-bold rounded-lg shadow-xl border-2 border-gray-300`;
+                el.textContent = valueToStr(v);
+                el.dataset.value = v;
+                el.onclick = () => toggleSelect(el);
+                container.appendChild(el);
+            });
+        }
+
+        function toggleSelect(el) {
+            el.classList.toggle('selected');
+            const v = parseInt(el.dataset.value);
+            const idx = selectedCards.indexOf(v);
+            if (idx > -1) selectedCards.splice(idx, 1);
+            else selectedCards.push(v);
+        }
+
+        function playSelected() {
+            if (selectedCards.length === 0) return alert('请选择牌');
+            ws.send(JSON.stringify({
+                type: "game_action",
+                room_id: currentRoomID,
+                data: { action: "play_cards", card: selectedCards.map(v => ({ value: v })) }
+            }));
+            log(`出牌: ${selectedCards.map(valueToStr).join(', ')}`, 'text-blue-400');
+            selectedCards = [];
+            document.querySelectorAll('.selected').forEach(el => el.classList.remove('selected'));
+        }
+
+        function passTurn() {
+            ws.send(JSON.stringify({
+                type: "game_action",
+                room_id: currentRoomID,
+                data: { action: "pass" }
+            }));
+            log('你选择不出', 'text-yellow-400');
+        }
+
+        function callLandlord(score) {
+            ws.send(JSON.stringify({
+                type: "game_action",
+                room_id: currentRoomID,
+                data: { action: "call_landlord", card: score }
+            }));
+            log(`你叫了 ${score} 分`, 'text-blue-400');
+        }
+
+        function valueToStr(v) {
+            if (v >= 3 && v <= 10) return v;
+            if (v === 11) return 'J';
+            if (v === 12) return 'Q';
+            if (v === 13) return 'K';
+            if (v === 14) return 'A';
+            if (v === 15) return '2';
+            if (v === 16) return '小王';
+            if (v === 17) return '大王';
+            return '?';
+        }
+
+        function createRoom() {
+            if (!ws || isCreating) return;
+            isCreating = true;
+            document.getElementById('createBtn').disabled = true;
+            ws.send(JSON.stringify({
+                type: "create_room",
+                data: { game_type: "ddz" }
+            }));
+        }
+
+        function joinRoom() {
+            if (!ws) return;
+            const roomId = document.getElementById('roomIdInput').value.trim();
+            if (!roomId) return alert('请输入房间号');
+            ws.send(JSON.stringify({
+                type: "join_room",
+                data: { room_id: roomId }
+            }));
+            log(`正在加入房间 ${roomId}...`, 'text-yellow-300');
+        }
+
+        function sendChat() {
+            const input = document.getElementById('chatInput');
+            const content = input.value.trim();
+            if (!content || !currentRoomID) return;
+            ws.send(JSON.stringify({
+                type: "chat",
+                room_id: currentRoomID,
+                data: { content }
+            }));
+            input.value = '';
+        }
+
+        function copyRoomId() {
+            navigator.clipboard.writeText(currentRoomID).then(() => alert('房间号已复制！'));
+        }
+
+        log('页面已就绪，请输入昵称并连接服务器', 'text-yellow-300');
+    </script>
+</body>
+
+</html>
