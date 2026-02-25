@@ -10,6 +10,8 @@ type Game interface {
 	GetState() interface{}                                           // 返回完整游戏状态（用于同步给所有客户端）
 	IsGameOver() bool
 	Winner() string
+	MaxPlayers() int
+	MinPlayers() int
 }
 
 // Action 统一包装卡牌指令

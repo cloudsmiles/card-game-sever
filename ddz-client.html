@@ -191,74 +191,139 @@
         }
 
         function handleMessage(msg) {
+            // 统一错误处理
             if (msg.type === 'error') {
-                log(`❌ ${msg.data.error || '未知错误'}`, 'text-red-400');
-                alert(`错误：${msg.data.error || '未知错误'}`);
+                const errorMsg = msg.data?.message || msg.data?.Message || msg.data?.error || '未知错误';
+                log(`❌ ${errorMsg}`, 'text-red-400');
+                alert(`操作失败：${errorMsg}`);
                 return;
             }
 
+            // 广播消息处理
             if (msg.type === 'broadcast') {
                 const data = msg.data || {};
+                const event = data.event;
+                const content = data.content || {};
 
-                if (data.room_id) {
-                    currentRoomID = data.room_id;
+                // 处理房间相关事件
+                if (data.room_id && (event === 'room_created' || event === 'player_joined')) {
+                    currentRoomID = content.room_id || data.room_id;
                     document.getElementById('roomInfo').classList.remove('hidden');
                     document.getElementById('currentRoomId').textContent = currentRoomID;
-                    log(`🎉 已成功进入房间 ${currentRoomID}`, 'text-green-400');
+                    log(`🎉 ${content.message || '房间已就绪'}`, 'text-green-400');
                     return;
                 }
 
-                if (data.event === 'chat') {
-                    addChat(data.content.player, data.content.content);
-                } else if (data.event === 'game_started' || data.event === 'state_update') {
-                    updateGameState(data.content);
-                } else if (data.event === 'game_over') {
-                    log(`🎉 游戏结束！${data.content.winner}`, 'text-yellow-400');
-                    alert(`游戏结束！${data.content.winner}`);
+                // 根据事件类型分发处理
+                switch (event) {
+                    case 'player_left':
+                        const leftPlayerId = content.player_id || content.PlayerID;
+                        log(`👋 玩家 ${leftPlayerId} 离开了房间`, 'text-yellow-400');
+                        if (leftPlayerId === playerID) {
+                            currentRoomID = '';
+                            document.getElementById('roomInfo').classList.add('hidden');
+                            resetGameUI();
+                            log('你已离开房间', 'text-gray-400');
+                        }
+                        break;
+
+                    case 'chat':
+                        addChat(content.player_id || content.PlayerID, content.content || content.Content);
+                        break;
+
+                    case 'game_started':
+                        log('🎮 游戏开始！', 'text-green-400');
+                        updateGameState(content);
+                        break;
+
+                    case 'state_update':
+                        updateGameState(content);
+                        break;
+
+                    case 'game_over':
+                        const winner = content.winner || content.Winner;
+                        log(`🏆 游戏结束！获胜者 ${winner}`, 'text-yellow-400');
+                        alert(`游戏结束！获胜者：${winner}`);
+                        break;
+
+                    default:
+                        console.log('未处理的广播事件:', event, content);
                 }
             }
         }
 
         function updateGameState(state) {
-            document.getElementById('phase').textContent = state.phase === 'call' ? '叫地主' : '出牌';
-            document.getElementById('currentTurn').textContent = state.current || '等待中';
-            document.getElementById('currentTurn').classList.toggle('text-green-400', state.current === playerID);
-            document.getElementById('currentTurn').classList.toggle('my-turn', state.current === playerID);
-            document.getElementById('landlord').textContent = state.landlord || '未定';
-            document.getElementById('lastCard').textContent = state.last_play ? state.last_play.Type + ' (' + state.last_play.Cards.map(c => valueToStr(c.Value)).join(', ') + ')' : '无';
+            if (!state) return;
+
+            // 兼容不同格式的 state
+            const phase = state.phase || state.Phase || '';
+            const currentTurn = state.current || state.CurrentTurn || '';
+            const landlord = state.landlord || state.Landlord || '';
+            const lastPlay = state.last_play || state.LastPlay || null;
+            const players = state.players || state.Players || [];
+            const hands = state.hands || state.Hands || {};
+
+            document.getElementById('phase').textContent = phase === 'call' ? '叫地主' : (phase === 'play' ? '出牌' : '等待中');
+            document.getElementById('currentTurn').textContent = currentTurn || '等待中';
+            document.getElementById('currentTurn').classList.toggle('text-green-400', currentTurn === playerID);
+            document.getElementById('currentTurn').classList.toggle('my-turn', currentTurn === playerID);
+            document.getElementById('landlord').textContent = landlord || '未定';
+
+            if (lastPlay) {
+                const cards = lastPlay.Cards || [];
+                const type = lastPlay.Type || '';
+                const cardsDisplay = cards.length > 0 ? cards.map(c => valueToStr(c.Value || c.value)).join(', ') : '';
+                document.getElementById('lastCard').textContent = `${type} (${cardsDisplay})`;
+            } else {
+                document.getElementById('lastCard').textContent = '无';
+            }
 
             const list = document.getElementById('playersList');
             list.innerHTML = '';
-            state.players.forEach(p => {
+            players.forEach(p => {
                 const isMe = p === playerID ? ' (我)' : '';
-                const isLandlord = p === state.landlord ? ' (地主)' : '';
+                const isLandlord = p === landlord ? ' (地主)' : '';
                 list.innerHTML += `
           <div class="flex justify-between bg-gray-700 px-4 py-2 rounded-lg">
             <span>${p}${isMe}${isLandlord}</span>
-            <span class="${p === state.current ? 'text-green-400' : ''}">●</span>
+            <span class="${p === currentTurn ? 'text-green-400' : ''}">●</span>
           </div>`;
             });
-            document.getElementById('playerCount').textContent = state.players.length;
+            document.getElementById('playerCount').textContent = players.length;
 
-            if (state.hands && state.hands[playerID + '_hand']) {
-                renderMyHand(state.hands[playerID + '_hand']);
+            // 获取手牌（兼容不同的 key 格式）
+            const handKey = hands[playerID + '_hand'] || hands[playerID] || hands[PlayerID + '_hand'] || hands[PlayerID];
+            if (handKey) {
+                renderMyHand(handKey);
             }
 
             const actionArea = document.getElementById('actionArea');
             actionArea.innerHTML = '';
-            if (state.current !== playerID) return;
+            if (currentTurn !== playerID) return;
 
-            if (state.phase === 'call') {
+            if (phase === 'call') {
                 actionArea.innerHTML = `
           <button onclick="callLandlord(0)" class="bg-gray-600 hover:bg-gray-500 px-6 py-2 rounded-xl">不叫</button>
-          <button onclick="callLandlord(1)" class="bg-blue-600 hover:bg-blue-500 px-6 py-2 rounded-xl">叫1分</button>
-          <button onclick="callLandlord(2)" class="bg-blue-600 hover:bg-blue-500 px-6 py-2 rounded-xl">叫2分</button>
-          <button onclick="callLandlord(3)" class="bg-blue-600 hover:bg-blue-500 px-6 py-2 rounded-xl">叫3分</button>`;
-            } else if (state.phase === 'play') {
+          <button onclick="callLandlord(1)" class="bg-blue-600 hover:bg-blue-500 px-6 py-2 rounded-xl">叫 1 分</button>
+          <button onclick="callLandlord(2)" class="bg-blue-600 hover:bg-blue-500 px-6 py-2 rounded-xl">叫 2 分</button>
+          <button onclick="callLandlord(3)" class="bg-blue-600 hover:bg-blue-500 px-6 py-2 rounded-xl">叫 3 分</button>`;
+            } else if (phase === 'play') {
                 actionArea.innerHTML = `
           <button onclick="playSelected()" class="bg-green-600 hover:bg-green-700 px-6 py-2 rounded-xl">出牌</button>
           <button onclick="passTurn()" class="bg-red-600 hover:bg-red-700 px-6 py-2 rounded-xl">不出</button>`;
             }
+        }
+
+        // 重置游戏 UI 状态（用于离开房间时）
+        function resetGameUI() {
+            document.getElementById('phase').textContent = '等待中';
+            document.getElementById('currentTurn').textContent = '';
+            document.getElementById('landlord').textContent = '未定';
+            document.getElementById('lastCard').textContent = '无';
+            document.getElementById('playersList').innerHTML = '';
+            document.getElementById('playerCount').textContent = '0';
+            document.getElementById('myHand').innerHTML = '';
+            document.getElementById('actionArea').innerHTML = '';
         }
 
         function renderMyHand(hand) {
@@ -334,6 +399,7 @@
                 type: "create_room",
                 data: { game_type: "ddz" }
             }));
+            log('正在创建斗地主房间...', 'text-yellow-300');
         }
 
         function joinRoom() {
@@ -345,6 +411,7 @@
                 data: { room_id: roomId }
             }));
             log(`正在加入房间 ${roomId}...`, 'text-yellow-300');
+            document.getElementById('roomIdInput').value = '';
         }
 
         function sendChat() {
@@ -356,6 +423,7 @@
                 room_id: currentRoomID,
                 data: { content }
             }));
+            addChat(playerID, content);
             input.value = '';
         }
 

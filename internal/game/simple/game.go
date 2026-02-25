@@ -18,6 +18,9 @@ func New() interfaces.Game {
 	return &SimpleGame{}
 }
 
+func (g *SimpleGame) MaxPlayers() int { return 2 }
+func (g *SimpleGame) MinPlayers() int { return 2 }
+
 func (g *SimpleGame) ID() string { return "simple" }
 
 func (g *SimpleGame) Init(players []string) error {

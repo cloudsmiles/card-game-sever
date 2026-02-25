@@ -152,47 +152,88 @@
 
         function handleMessage(msg) {
             if (msg.type === 'error') {
-                log(`❌ ${msg.data.error}`, 'text-red-400');
-                alert(`出牌失败：${msg.data.error}`);
+                log(`❌ ${msg.data.message || msg.data.Message}`, 'text-red-400');
+                alert(`操作失败：${msg.data.message || msg.data.Message}`);
                 return;
             }
             if (msg.type === 'broadcast') {
                 const data = msg.data || {};
-                if (data.room_id) {
-                    currentRoomID = data.room_id;
-                    document.getElementById('roomInfo').classList.remove('hidden');
-                    document.getElementById('currentRoomId').textContent = currentRoomID;
-                    document.getElementById('roomTip').textContent = '✅ 房间就绪，可复制分享';
-                    log(`🎉 成功进入房间 ${currentRoomID}，状态同步中...`, 'text-green-400');
+
+                // 处理房间创建或玩家加入事件
+                if (data.event === 'room_created' || data.event === 'player_joined') {
+                    const content = data.content || {};
+                    if (content.room_id) {
+                        currentRoomID = content.room_id;
+                        document.getElementById('roomInfo').classList.remove('hidden');
+                        document.getElementById('currentRoomId').textContent = currentRoomID;
+                        document.getElementById('roomTip').textContent = '✅ 房间就绪，可复制分享';
+                    }
+                    log(`🎉 ${content.message || '房间已创建'}`, 'text-green-400');
                     return;
                 }
-                if (data.event === 'chat') addChat(data.content.player, data.content.content);
-                else if (data.event === 'game_started' || data.event === 'state_update') {
+
+                // 处理玩家离开事件
+                if (data.event === 'player_left') {
+                    const content = data.content || {};
+                    const leftPlayerId = content.player_id || content.PlayerID;
+                    log(`👋 玩家 ${leftPlayerId} 离开了房间`, 'text-yellow-400');
+                    // 如果是自己离开，清理房间状态
+                    if (leftPlayerId === playerID) {
+                        currentRoomID = '';
+                        document.getElementById('roomInfo').classList.add('hidden');
+                        log('你已离开房间', 'text-gray-400');
+                    }
+                    return;
+                }
+
+                if (data.event === 'chat') {
+                    const content = data.content || {};
+                    addChat(content.player_id || content.PlayerID, content.content || content.Content);
+                    return;
+                }
+
+                if (data.event === 'game_started' || data.event === 'state_update') {
                     log('收到最新游戏状态（已同步）', 'text-green-400');
                     updateGameState(data.content);
+                    return;
                 }
-                else if (data.event === 'game_over') {
-                    log(`🎉 游戏结束！获胜者 ${data.content.winner}`, 'text-yellow-400');
-                    alert(`游戏结束！获胜者：${data.content.winner}`);
+
+                if (data.event === 'game_over') {
+                    const content = data.content || {};
+                    log(`🎉 游戏结束！获胜者 ${content.winner || content.Winner}`, 'text-yellow-400');
+                    alert(`游戏结束！获胜者：${content.winner || content.Winner}`);
+                    return;
                 }
             }
         }
 
         function updateGameState(state) {
-            document.getElementById('currentTurn').textContent = state.current || '等待中';
-            document.getElementById('currentTurn').classList.toggle('text-green-400', state.current === playerID);
-            document.getElementById('lastCard').textContent = state.last_card !== undefined ? state.last_card : '无';
+            if (!state) return;
+
+            // 兼容不同格式的 state
+            const currentTurn = state.current || state.CurrentTurn || '';
+            const lastCard = state.last_card !== undefined ? state.last_card : (state.LastCard !== undefined ? state.LastCard : '无');
+            const players = state.players || state.Players || [];
+            const hands = state.hands || state.Hands || {};
+
+            document.getElementById('currentTurn').textContent = currentTurn || '等待中';
+            document.getElementById('currentTurn').classList.toggle('text-green-400', currentTurn === playerID);
+            document.getElementById('lastCard').textContent = lastCard;
 
             const list = document.getElementById('playersList');
             list.innerHTML = '';
-            (state.players || []).forEach(p => {
-                list.innerHTML += `<div class="flex justify-between bg-gray-700 px-4 py-2 rounded-lg"><span>${p}${p === playerID ? ' (我)' : ''}</span><span class="${p === state.current ? 'text-green-400' : ''}">●</span></div>`;
+            players.forEach(p => {
+                list.innerHTML += `<div class="flex justify-between bg-gray-700 px-4 py-2 rounded-lg"><span>${p}${p === playerID ? ' (我)' : ''}</span><span class="${p === currentTurn ? 'text-green-400' : ''}">●</span></div>`;
             });
-            document.getElementById('playerCount').textContent = (state.players || []).length;
+            document.getElementById('playerCount').textContent = players.length;
 
-            if (state.hands && state.hands[playerID]) {
-                myHandCards = state.hands[playerID];
+            if (hands[playerID] || hands[PlayerID]) {
+                myHandCards = hands[playerID] || hands[PlayerID];
                 renderMyHand();
+            } else {
+                // 如果自己没有手牌数据，清空手牌显示
+                myHandCards = [];
+                document.getElementById('myHand').innerHTML = '';
             }
         }
 
