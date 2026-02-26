@@ -22,7 +22,11 @@ func (m *Manager) CreateRoom(gameType string) string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	id := fmt.Sprintf("room_%d", len(m.rooms)+1)
-	m.rooms[id] = NewRoom(id, gameType)
+	room := NewRoom(id, gameType)
+	if room == nil {
+		return "" // 返回空字符串表示创建失败
+	}
+	m.rooms[id] = room
 	return id
 }
 

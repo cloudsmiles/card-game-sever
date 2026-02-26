@@ -26,6 +26,8 @@ type DdzGame struct {
 	callTurn    int
 	outTurn     int
 	lastPlay    Play
+	lastPlayer  string // 记录最后出牌的玩家
+	passCount   int    // 记录连续pass的次数
 	phase       string // "call" 或 "play"
 	gameOver    bool
 	winner      string
@@ -65,6 +67,7 @@ func (g *DdzGame) Init(players []string) error {
 
 func (g *DdzGame) dealCards() {
 	var deck Hand
+	// 创建标准54张牌
 	for suit := 1; suit <= 4; suit++ {
 		for v := 3; v <= 15; v++ {
 			deck = append(deck, Card{Value: v, Suit: strconv.Itoa(suit)})
@@ -72,13 +75,31 @@ func (g *DdzGame) dealCards() {
 	}
 	deck = append(deck, Card{Value: 16, Suit: "小王"}, Card{Value: 17, Suit: "大王"})
 
+	// 验证牌数
+	if len(deck) != 54 {
+		panic(fmt.Sprintf("牌数错误：期望54张，实际%d张", len(deck)))
+	}
+
 	rand.Shuffle(len(deck), func(i, j int) { deck[i], deck[j] = deck[j], deck[i] })
 
+	// 发牌：每人17张，底牌3张
 	for i, p := range g.players {
-		g.hands[p] = deck[i*17 : (i+1)*17]
+		start := i * 17
+		end := (i + 1) * 17
+		if end > len(deck) {
+			panic("发牌越界")
+		}
+		g.hands[p] = deck[start:end]
 		sort.Sort(g.hands[p])
 	}
 	g.bottomCards = deck[51:54]
+
+	// 验证每个玩家手牌数量
+	for player, hand := range g.hands {
+		if len(hand) != 17 {
+			panic(fmt.Sprintf("玩家%s手牌数量错误：期望17张，实际%d张", player, len(hand)))
+		}
+	}
 }
 
 func (g *DdzGame) CurrentTurn() string {
@@ -140,7 +161,16 @@ func (g *DdzGame) ProcessAction(playerID string, action interface{}) (bool, erro
 
 	case "play":
 		if act.Type == "pass" {
+			g.passCount++
 			g.outTurn = (g.outTurn + 1) % 3
+
+			// 如果所有人都pass了（连续2次pass），则最后出牌的人重新获得出牌权
+			if g.passCount >= 2 && g.lastPlayer != "" {
+				g.outTurn = indexOf(g.players, g.lastPlayer)
+				g.passCount = 0
+				g.lastPlay = Play{} // 清空上一手牌
+				return true, nil    // 回合结束，重新开始
+			}
 			return false, nil
 		}
 
@@ -166,19 +196,36 @@ func (g *DdzGame) ProcessAction(playerID string, action interface{}) (bool, erro
 			played[i] = Card{Value: int(vf)}
 		}
 
+		// 添加调试信息
+		fmt.Printf("玩家 %s 尝试出牌: ", playerID)
+		for _, card := range played {
+			fmt.Printf("%s ", valueToStr(card.Value))
+		}
+		fmt.Printf("\n")
+
 		playType, valid := parsePlayType(played)
 		if !valid {
-			return false, fmt.Errorf("无效的牌型")
+			return false, fmt.Errorf("无效的牌型: %v", played)
 		}
 
-		if !g.beatsLast(playType, played) {
-			return false, fmt.Errorf("无法压制上家")
+		fmt.Printf("识别的牌型: %s\n", playType)
+
+		// 如果是新回合的第一手牌，不需要压制上家
+		if g.lastPlay.Type != "" {
+			if !g.beatsLast(playType, played) {
+				return false, fmt.Errorf("无法压制上家")
+			}
 		}
 
 		// 移除手牌
 		g.hands[playerID] = removeCards(g.hands[playerID], played)
 
+		// 更新游戏状态
 		g.lastPlay = Play{Type: playType, Cards: played}
+		g.lastPlayer = playerID
+		g.passCount = 0 // 有人出牌，重置pass计数
+		g.outTurn = (g.outTurn + 1) % 3
+
 		turnEnd := len(g.hands[playerID]) == 0
 
 		if turnEnd {
@@ -202,8 +249,6 @@ func (g *DdzGame) ProcessAction(playerID string, action interface{}) (bool, erro
 			}
 			return true, nil
 		}
-
-		g.outTurn = (g.outTurn + 1) % 3
 		return false, nil
 	}
 
@@ -267,6 +312,9 @@ func parsePlayType(cards Hand) (string, bool) {
 		countMap[c.Value]++
 	}
 
+	// 调试日志
+	fmt.Printf("解析牌型 - 牌数:%d, countMap:%v\n", len(cards), countMap)
+
 	// 王炸
 	if len(cards) == 2 && cards[0].Value == 16 && cards[1].Value == 17 {
 		return "rocket", true
@@ -287,11 +335,271 @@ func parsePlayType(cards Hand) (string, bool) {
 		if len(countMap) == 1 {
 			return "bomb", true
 		}
-		// 四带二 等可后续扩展
+		// 检查是否为三带一
+		if isTripleWithSingle(countMap) {
+			return "triple_single", true
+		}
+	case 5:
+		// 5张牌可能是顺子或三带对子
+		if isStraight(cards) {
+			return "straight", true
+		}
+		// 检查是否为三带对子
+		if isTripleWithPair(countMap) {
+			fmt.Printf("识别为三带对子牌型\n")
+			return "triple_pair", true
+		}
+	case 6:
+		// 6张顺子或四带二
+		if isStraight(cards) {
+			return "straight", true
+		}
+		if isQuadWithPair(countMap) {
+			return "quad_pair", true
+		}
 	}
 
-	// 顺子、连对、飞机等暂未实现，可后续补充
+	// 顺子、连对、飞机等判断
+	if isStraight(cards) {
+		return "straight", true
+	}
+
+	// 连对判断（双顺）
+	if isPairSequence(cards) {
+		return "pair_sequence", true
+	}
+
+	// 飞机判断（三顺）
+	if isTripleSequence(cards) {
+		return "triple_sequence", true
+	}
+
+	// 飞机带翅膀
+	if isTripleSequenceWithWings(cards) {
+		return "triple_sequence_wings", true
+	}
+
+	fmt.Printf("无法识别的牌型\n")
 	return "", false
+}
+
+// 判断是否为三带一对子
+func isTripleWithPair(countMap map[int]int) bool {
+	if len(countMap) != 2 {
+		return false
+	}
+
+	tripleFound := false
+	pairFound := false
+
+	for _, count := range countMap {
+		if count == 3 {
+			tripleFound = true
+		} else if count == 2 {
+			pairFound = true
+		}
+	}
+
+	return tripleFound && pairFound
+}
+
+// 判断是否为三带一
+func isTripleWithSingle(countMap map[int]int) bool {
+	if len(countMap) != 2 {
+		return false
+	}
+
+	tripleFound := false
+	singleFound := false
+
+	for _, count := range countMap {
+		if count == 3 {
+			tripleFound = true
+		} else if count == 1 {
+			singleFound = true
+		}
+	}
+
+	return tripleFound && singleFound
+}
+
+// 判断是否为顺子（连续单牌）
+func isStraight(cards Hand) bool {
+	if len(cards) < 5 {
+		return false // 顺子至少5张
+	}
+
+	// 检查是否有重复的牌
+	countMap := make(map[int]int)
+	for _, c := range cards {
+		// 2不能参与顺子
+		if c.Value == 15 {
+			return false
+		}
+		countMap[c.Value]++
+		if countMap[c.Value] > 1 {
+			return false
+		}
+	}
+
+	// 检查是否连续
+	values := make([]int, 0, len(cards))
+	for value := range countMap {
+		values = append(values, value)
+	}
+	sort.Ints(values)
+
+	for i := 1; i < len(values); i++ {
+		if values[i] != values[i-1]+1 {
+			return false
+		}
+	}
+
+	return true
+}
+
+// 判断是否为连对（双顺）
+func isPairSequence(cards Hand) bool {
+	if len(cards)%2 != 0 || len(cards) < 6 {
+		return false // 连对必须是偶数张，至少6张（3对）
+	}
+
+	// 统计每张牌的数量
+	countMap := make(map[int]int)
+	for _, c := range cards {
+		// 2不能参与连对
+		if c.Value == 15 {
+			return false
+		}
+		countMap[c.Value]++
+	}
+
+	// 每张牌必须出现2次
+	pairs := 0
+	for _, count := range countMap {
+		if count != 2 {
+			return false
+		}
+		pairs++
+	}
+
+	// 检查对子的值是否连续
+	values := make([]int, 0, pairs)
+	for value := range countMap {
+		values = append(values, value)
+	}
+	sort.Ints(values)
+
+	for i := 1; i < len(values); i++ {
+		if values[i] != values[i-1]+1 {
+			return false
+		}
+	}
+
+	return true
+}
+
+// 判断是否为飞机（三顺）
+func isTripleSequence(cards Hand) bool {
+	if len(cards)%3 != 0 || len(cards) < 6 {
+		return false // 飞机必须是3的倍数，至少6张（2个三张）
+	}
+
+	// 统计每张牌的数量
+	countMap := make(map[int]int)
+	for _, c := range cards {
+		// 2不能参与飞机
+		if c.Value == 15 {
+			return false
+		}
+		countMap[c.Value]++
+	}
+
+	// 每张牌必须出现3次
+	triples := 0
+	for _, count := range countMap {
+		if count != 3 {
+			return false
+		}
+		triples++
+	}
+
+	// 检查三张的值是否连续
+	values := make([]int, 0, triples)
+	for value := range countMap {
+		values = append(values, value)
+	}
+	sort.Ints(values)
+
+	for i := 1; i < len(values); i++ {
+		if values[i] != values[i-1]+1 {
+			return false
+		}
+	}
+
+	return true
+}
+
+// 判断是否为四带二
+func isQuadWithPair(countMap map[int]int) bool {
+	if len(countMap) != 2 && len(countMap) != 3 {
+		return false
+	}
+
+	quadFound := false
+	pairCount := 0
+
+	for _, count := range countMap {
+		if count == 4 {
+			quadFound = true
+		} else if count == 2 {
+			pairCount++
+		} else if count != 1 {
+			return false // 只能有四张和一对，或者四张和两个单张
+		}
+	}
+
+	// 四带二对 或 四带两单
+	return quadFound && (pairCount == 1 || pairCount == 0)
+}
+
+// 判断是否为飞机带翅膀
+func isTripleSequenceWithWings(cards Hand) bool {
+	countMap := make(map[int]int)
+	for _, c := range cards {
+		countMap[c.Value]++
+	}
+
+	// 找出三张序列
+	triples := make([]int, 0)
+	singles := 0
+	pairs := 0
+
+	for value, count := range countMap {
+		if count == 3 {
+			triples = append(triples, value)
+		} else if count == 2 {
+			pairs++
+		} else if count == 1 {
+			singles++
+		}
+	}
+
+	if len(triples) < 2 {
+		return false // 至少需要两个三张组成序列
+	}
+
+	// 检查三张是否连续
+	sort.Ints(triples)
+	for i := 1; i < len(triples); i++ {
+		if triples[i] != triples[i-1]+1 {
+			return false
+		}
+	}
+
+	// 检查翅膀是否匹配
+	expectedWings := len(triples)
+	return singles+pairs*2 == expectedWings
 }
 
 func (g *DdzGame) beatsLast(playType string, cards Hand) bool {
@@ -299,19 +607,87 @@ func (g *DdzGame) beatsLast(playType string, cards Hand) bool {
 		return true // 第一手任意合法牌型
 	}
 
+	// 王炸无敌
 	if playType == "rocket" {
 		return true
 	}
+
+	// 炸弹可以压非王炸
 	if playType == "bomb" && g.lastPlay.Type != "rocket" {
 		return true
 	}
 
-	// 同类型比牌（简化，只比长度和首张大小）
-	if playType == g.lastPlay.Type && len(cards) == len(g.lastPlay.Cards) {
-		return cards[0].Value > g.lastPlay.Cards[0].Value
+	// 同类型牌型比较
+	if playType == g.lastPlay.Type {
+		// 特殊牌型比较
+		switch playType {
+		case "triple_single", "triple_pair", "quad_pair", "triple_sequence_wings":
+			// 取主要牌型进行比较（三张、四张、飞机主体）
+			mainValue1 := getMainCardValue(cards, playType)
+			mainValue2 := getMainCardValue(g.lastPlay.Cards, playType)
+			return mainValue1 > mainValue2
+		case "straight", "pair_sequence", "triple_sequence":
+			// 长度必须相同才能比较
+			if len(cards) != len(g.lastPlay.Cards) {
+				return false
+			}
+			// 比较最小牌的大小
+			return getMinCardValue(cards) > getMinCardValue(g.lastPlay.Cards)
+		default:
+			// 普通牌型（单牌、对子、三张）按长度和首张大小比较
+			if len(cards) == len(g.lastPlay.Cards) {
+				return cards[0].Value > g.lastPlay.Cards[0].Value
+			}
+		}
 	}
 
 	return false
+}
+
+// 获取主要牌值（用于复合牌型比较）
+func getMainCardValue(cards Hand, playType string) int {
+	countMap := make(map[int]int)
+	for _, c := range cards {
+		countMap[c.Value]++
+	}
+
+	switch playType {
+	case "triple_single", "triple_pair":
+		// 找到三张的值
+		for value, count := range countMap {
+			if count == 3 {
+				return value
+			}
+		}
+	case "quad_pair":
+		// 找到四张的值
+		for value, count := range countMap {
+			if count == 4 {
+				return value
+			}
+		}
+	case "triple_sequence_wings":
+		// 找到飞机主体的最小值
+		triples := make([]int, 0)
+		for value, count := range countMap {
+			if count == 3 {
+				triples = append(triples, value)
+			}
+		}
+		sort.Ints(triples)
+		if len(triples) > 0 {
+			return triples[0]
+		}
+	}
+
+	return 0
+}
+
+func getMinCardValue(cards Hand) int {
+	if len(cards) == 0 {
+		return 0
+	}
+	return cards[0].Value
 }
 
 func removeCards(hand Hand, played Hand) Hand {
@@ -360,4 +736,26 @@ func indexOf(slice []string, target string) int {
 		}
 	}
 	return -1
+}
+
+// 辅助函数：将数值转换为牌面显示
+func valueToStr(value int) string {
+	switch value {
+	case 11:
+		return "J"
+	case 12:
+		return "Q"
+	case 13:
+		return "K"
+	case 14:
+		return "A"
+	case 15:
+		return "2"
+	case 16:
+		return "小王"
+	case 17:
+		return "大王"
+	default:
+		return fmt.Sprintf("%d", value)
+	}
 }

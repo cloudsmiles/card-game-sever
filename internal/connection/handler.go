@@ -236,6 +236,7 @@ func handleChat(conn *websocket.Conn, send chan types.Message, msg types.Message
 		Data: types.BroadcastData{
 			Event: types.ChatMessage,
 			Content: types.ChatContent{
+				RoomID:   msg.RoomID,
 				PlayerID: msg.PlayerID,
 				Content:  chatData.Content,
 			},

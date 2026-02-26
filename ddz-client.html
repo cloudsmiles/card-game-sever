@@ -147,6 +147,7 @@
         let currentRoomID = '';
         let selectedCards = [];
         let isCreating = false;
+        let onlinePlayers = []; // 添加在线玩家列表
 
         function log(msg, color = 'text-gray-300') {
             const div = document.getElementById('gameLog');
@@ -191,6 +192,9 @@
         }
 
         function handleMessage(msg) {
+            // 调试：打印所有接收到的消息
+            console.log('收到消息:', JSON.stringify(msg, null, 2));
+            
             // 统一错误处理
             if (msg.type === 'error') {
                 const errorMsg = msg.data?.message || msg.data?.Message || msg.data?.error || '未知错误';
@@ -204,9 +208,11 @@
                 const data = msg.data || {};
                 const event = data.event;
                 const content = data.content || {};
+                
+                console.log('广播事件:', event, '内容:', content);
 
                 // 处理房间相关事件
-                if (data.room_id && (event === 'room_created' || event === 'player_joined')) {
+                if ((content.room_id || data.room_id) && (event === 'room_created' || event === 'player_joined')) {
                     currentRoomID = content.room_id || data.room_id;
                     document.getElementById('roomInfo').classList.remove('hidden');
                     document.getElementById('currentRoomId').textContent = currentRoomID;
@@ -216,9 +222,35 @@
 
                 // 根据事件类型分发处理
                 switch (event) {
+                    case 'player_joined':
+                    case 'room_created':
+                        // 房间相关事件，设置房间 ID
+                        if (!currentRoomID && (content.room_id || content.RoomID)) {
+                            currentRoomID = content.room_id || content.RoomID;
+                            document.getElementById('roomInfo').classList.remove('hidden');
+                            document.getElementById('currentRoomId').textContent = currentRoomID;
+                            log(`🎉 ${content.message || '房间已就绪'}`, 'text-green-400');
+                        }
+                        // 更新在线玩家列表
+                        if (content.player_id) {
+                            const playerId = content.player_id;
+                            if (!onlinePlayers.includes(playerId)) {
+                                onlinePlayers.push(playerId);
+                                updateOnlinePlayers();
+                                log(`👋 玩家 ${playerId} 加入了房间`, 'text-green-400');
+                            }
+                        }
+                        break;
+
                     case 'player_left':
                         const leftPlayerId = content.player_id || content.PlayerID;
                         log(`👋 玩家 ${leftPlayerId} 离开了房间`, 'text-yellow-400');
+                        // 从在线玩家列表中移除
+                        const index = onlinePlayers.indexOf(leftPlayerId);
+                        if (index > -1) {
+                            onlinePlayers.splice(index, 1);
+                            updateOnlinePlayers();
+                        }
                         if (leftPlayerId === playerID) {
                             currentRoomID = '';
                             document.getElementById('roomInfo').classList.add('hidden');
@@ -252,6 +284,80 @@
             }
         }
 
+        // 更新在线玩家列表显示
+        function updateOnlinePlayers() {
+            const list = document.getElementById('playersList');
+            list.innerHTML = '';
+            onlinePlayers.forEach(p => {
+                const isMe = p === playerID ? ' (我)' : '';
+                // 这里暂时不显示地主信息，因为需要从游戏状态获取
+                list.innerHTML += `
+          <div class="flex justify-between bg-gray-700 px-4 py-2 rounded-lg">
+            <span>${p}${isMe}</span>
+            <span class="text-gray-400">●</span>
+          </div>`;
+            });
+            document.getElementById('playerCount').textContent = onlinePlayers.length;
+        }
+
+        function renderMyHand(hand) {
+            const container = document.getElementById('myHand');
+            container.innerHTML = '';
+            // 注意：这里不清空selectedCards，保持当前选择状态
+            hand.sort((a, b) => a - b); // 排序手牌
+            
+            // 为每张牌创建唯一标识
+            hand.forEach((v, index) => {
+                const el = document.createElement('div');
+                el.className = `card bg-white text-black w-12 h-20 flex items-center justify-center text-2xl font-bold rounded-lg shadow-xl border-2 border-gray-300`;
+                el.textContent = valueToStr(v);
+                // 使用值+索引作为唯一标识
+                el.dataset.cardId = `${v}_${index}`;
+                el.dataset.value = v;
+                el.onclick = () => toggleSelect(el, v, index); // 传递索引参数
+                container.appendChild(el);
+            });
+            
+            // 重新应用选中状态（如果有的话）
+            selectedCards.forEach(cardInfo => {
+                const cardEl = Array.from(container.children).find(el => 
+                    el.dataset.cardId === cardInfo.id
+                );
+                if (cardEl) {
+                    cardEl.classList.add('selected');
+                }
+            });
+        }
+
+        function toggleSelect(el, value, index) {
+            // 创建唯一的卡片标识
+            const cardId = `${value}_${index}`;
+            
+            // 查找这个具体卡片是否已被选中
+            const selectedIndex = selectedCards.findIndex(card => card.id === cardId);
+            
+            console.log('点击卡片:', {value, index, cardId});
+            console.log('当前选中列表:', selectedCards);
+            
+            if (selectedIndex > -1) {
+                // 取消选择这张具体的牌
+                selectedCards.splice(selectedIndex, 1);
+                el.classList.remove('selected');
+                log(`取消选择 ${valueToStr(value)}，剩余 ${selectedCards.length} 张牌`, 'text-gray-400');
+            } else {
+                // 添加选择这张具体的牌
+                selectedCards.push({
+                    id: cardId,
+                    value: value,
+                    index: index
+                });
+                el.classList.add('selected');
+                log(`已选择 ${selectedCards.length} 张牌: ${selectedCards.map(c => valueToStr(c.value)).join(', ')}`, 'text-blue-300');
+            }
+            
+            console.log('更新后的选中列表:', selectedCards);
+        }
+
         function updateGameState(state) {
             if (!state) return;
 
@@ -262,6 +368,12 @@
             const lastPlay = state.last_play || state.LastPlay || null;
             const players = state.players || state.Players || [];
             const hands = state.hands || state.Hands || {};
+
+            // 更新在线玩家列表（如果游戏状态中有完整玩家列表）
+            if (players.length > 0) {
+                onlinePlayers = [...players];
+                updateOnlinePlayers();
+            }
 
             document.getElementById('phase').textContent = phase === 'call' ? '叫地主' : (phase === 'play' ? '出牌' : '等待中');
             document.getElementById('currentTurn').textContent = currentTurn || '等待中';
@@ -278,22 +390,23 @@
                 document.getElementById('lastCard').textContent = '无';
             }
 
+            // 更新玩家列表显示地主标识
             const list = document.getElementById('playersList');
             list.innerHTML = '';
-            players.forEach(p => {
+            onlinePlayers.forEach(p => {
                 const isMe = p === playerID ? ' (我)' : '';
                 const isLandlord = p === landlord ? ' (地主)' : '';
                 list.innerHTML += `
           <div class="flex justify-between bg-gray-700 px-4 py-2 rounded-lg">
             <span>${p}${isMe}${isLandlord}</span>
-            <span class="${p === currentTurn ? 'text-green-400' : ''}">●</span>
+            <span class="${p === currentTurn ? 'text-green-400' : 'text-gray-400'}">●</span>
           </div>`;
             });
-            document.getElementById('playerCount').textContent = players.length;
 
             // 获取手牌（兼容不同的 key 格式）
             const handKey = hands[playerID + '_hand'] || hands[playerID] || hands[PlayerID + '_hand'] || hands[PlayerID];
             if (handKey) {
+                // 只在手牌真正改变时才重新渲染
                 renderMyHand(handKey);
             }
 
@@ -306,11 +419,13 @@
           <button onclick="callLandlord(0)" class="bg-gray-600 hover:bg-gray-500 px-6 py-2 rounded-xl">不叫</button>
           <button onclick="callLandlord(1)" class="bg-blue-600 hover:bg-blue-500 px-6 py-2 rounded-xl">叫 1 分</button>
           <button onclick="callLandlord(2)" class="bg-blue-600 hover:bg-blue-500 px-6 py-2 rounded-xl">叫 2 分</button>
-          <button onclick="callLandlord(3)" class="bg-blue-600 hover:bg-blue-500 px-6 py-2 rounded-xl">叫 3 分</button>`;
+          <button onclick="callLandlord(3)" class="bg-blue-600 hover:bg-blue-500 px-6 py-2 rounded-xl">叫 3 分</button>
+          <button onclick="clearSelection()" class="bg-gray-500 hover:bg-gray-400 px-6 py-2 rounded-xl">清空选择</button>`;
             } else if (phase === 'play') {
                 actionArea.innerHTML = `
           <button onclick="playSelected()" class="bg-green-600 hover:bg-green-700 px-6 py-2 rounded-xl">出牌</button>
-          <button onclick="passTurn()" class="bg-red-600 hover:bg-red-700 px-6 py-2 rounded-xl">不出</button>`;
+          <button onclick="passTurn()" class="bg-red-600 hover:bg-red-700 px-6 py-2 rounded-xl">不出</button>
+          <button onclick="clearSelection()" class="bg-gray-500 hover:bg-gray-400 px-6 py-2 rounded-xl">清空选择</button>`;
             }
         }
 
@@ -324,39 +439,24 @@
             document.getElementById('playerCount').textContent = '0';
             document.getElementById('myHand').innerHTML = '';
             document.getElementById('actionArea').innerHTML = '';
-        }
-
-        function renderMyHand(hand) {
-            const container = document.getElementById('myHand');
-            container.innerHTML = '';
-            selectedCards = [];
-            hand.sort((a, b) => a - b); // 排序手牌
-            hand.forEach(v => {
-                const el = document.createElement('div');
-                el.className = `card bg-white text-black w-12 h-20 flex items-center justify-center text-2xl font-bold rounded-lg shadow-xl border-2 border-gray-300`;
-                el.textContent = valueToStr(v);
-                el.dataset.value = v;
-                el.onclick = () => toggleSelect(el);
-                container.appendChild(el);
-            });
-        }
-
-        function toggleSelect(el) {
-            el.classList.toggle('selected');
-            const v = parseInt(el.dataset.value);
-            const idx = selectedCards.indexOf(v);
-            if (idx > -1) selectedCards.splice(idx, 1);
-            else selectedCards.push(v);
+            onlinePlayers = []; // 清空在线玩家列表
         }
 
         function playSelected() {
-            if (selectedCards.length === 0) return alert('请选择牌');
+            if (selectedCards.length === 0) return alert('请选择至少一张牌');
+            
+            // 提取出牌的值
+            const cardsToPlay = selectedCards.map(card => card.value);
+            
             ws.send(JSON.stringify({
                 type: "game_action",
                 room_id: currentRoomID,
-                data: { action: "play_cards", card: selectedCards.map(v => ({ value: v })) }
+                data: { action: "play_cards", card: cardsToPlay.map(v => ({ value: v })) }
             }));
-            log(`出牌: ${selectedCards.map(valueToStr).join(', ')}`, 'text-blue-400');
+            
+            log(`出牌: ${cardsToPlay.map(valueToStr).join(', ')}`, 'text-blue-400');
+            
+            // 清空选择状态
             selectedCards = [];
             document.querySelectorAll('.selected').forEach(el => el.classList.remove('selected'));
         }
@@ -429,6 +529,13 @@
 
         function copyRoomId() {
             navigator.clipboard.writeText(currentRoomID).then(() => alert('房间号已复制！'));
+        }
+
+        // 添加清空选择的函数
+        function clearSelection() {
+            selectedCards = [];
+            document.querySelectorAll('.selected').forEach(el => el.classList.remove('selected'));
+            log('已清空选择', 'text-gray-400');
         }
 
         log('页面已就绪，请输入昵称并连接服务器', 'text-yellow-300');

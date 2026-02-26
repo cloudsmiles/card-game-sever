@@ -4,7 +4,6 @@ package types
 type Event string
 
 const (
-	RoomCreated      Event = "room_created"
 	RoomStateChanged Event = "room_state_changed"
 	PlayerJoined     Event = "player_joined"
 	PlayerLeft       Event = "player_left"
@@ -14,18 +13,20 @@ const (
 	ChatMessage      Event = "chat"
 )
 
-// BroadcastData.Content
-type CreateRoomContent struct {
-	RoomID  string `json:"room_id"`
-	Message string `json:"message"`
+type JoinRoomContent struct {
+	RoomID   string `json:"room_id"`
+	PlayerID string `json:"player_id"`
+	Message  string `json:"message"`
 }
 
-type JoinRoomContent struct {
-	RoomID  string `json:"room_id"`
-	Message string `json:"message"`
+type LeftRoomContent struct {
+	RoomID   string `json:"room_id"`
+	PlayerID string `json:"player_id"`
+	Message  string `json:"message"`
 }
 
 type ChatContent struct {
+	RoomID   string `json:"room_id"`
 	PlayerID string `json:"player_id"`
 	Content  string `json:"content"`
 }
