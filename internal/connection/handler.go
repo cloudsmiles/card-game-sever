@@ -47,6 +47,18 @@ func WSHandler(w http.ResponseWriter, r *http.Request) {
 	setPlayerConnected(playerID, true)
 	log.Printf("玩家已连接 [玩家: %s]", playerID)
 
+	// 检查是否是断线重连
+	if existingRoomID, exists := room.GlobalPlayerTracker.GetPlayerRoom(playerID); exists {
+		roomObj, err := room.GlobalManager.GetRoom(existingRoomID)
+		if err == nil && roomObj.State == types.RoomPaused {
+			// 尝试重连
+			if reconnectErr := roomObj.ReconnectPlayer(playerID, send); reconnectErr == nil {
+				currentRoomID = existingRoomID
+				log.Printf("玩家 [%s] 断线重连成功 [房间：%s]", playerID, existingRoomID)
+			}
+		}
+	}
+
 	// 连接验证通过后才注册清理 defer
 	defer func() {
 		log.Printf("连接断开，开始清理资源 [玩家: %s]", playerID)
@@ -54,15 +66,21 @@ func WSHandler(w http.ResponseWriter, r *http.Request) {
 		if playerID != "" && currentRoomID != "" {
 			roomObj, err := room.GlobalManager.GetRoom(currentRoomID)
 			if err == nil {
-				isEmpty := roomObj.RemovePlayer(playerID)
-				log.Printf("玩家 [%s] 离开房间 [%s]", playerID, currentRoomID)
-				// 如果房间空了，从管理器移除
-				if isEmpty {
-					room.GlobalManager.RemoveRoom(currentRoomID)
+				// 游戏进行中时标记为断线，否则直接移除
+				if roomObj.State == types.RoomPlaying {
+					roomObj.MarkPlayerOffline(playerID)
+					log.Printf("玩家 [%s] 游戏中断线，已标记 [房间：%s]", playerID, currentRoomID)
+				} else {
+					isEmpty := roomObj.RemovePlayer(playerID)
+					log.Printf("玩家 [%s] 离开房间 [%s]", playerID, currentRoomID)
+					// 如果房间空了，从管理器移除
+					if isEmpty {
+						room.GlobalManager.RemoveRoom(currentRoomID)
+					}
+					// 从玩家房间追踪器中移除
+					room.GlobalPlayerTracker.RemovePlayer(playerID)
 				}
 			}
-			// 从玩家房间追踪器中移除
-			room.GlobalPlayerTracker.RemovePlayer(playerID)
 		}
 		// 标记玩家为已断开连接
 		setPlayerConnected(playerID, false)

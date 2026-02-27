@@ -12,16 +12,18 @@ import (
 )
 
 type Room struct {
-	ID         string
-	GameType   string
-	State      types.RoomState
-	Players    map[string]*Client // playerID -> Client
-	Seats      map[int]string     // seatNumber -> playerID
-	Ready      map[string]bool    // playerID -> ready status
-	Game       interfaces.Game
-	mu         sync.RWMutex
-	broadcast  chan types.Message
-	lastAction map[string]int64 // playerID -> 上次操作时间戳（毫秒）
+	ID              string
+	GameType        string
+	State           types.RoomState
+	Players         map[string]*Client    // playerID -> Client
+	Seats           map[int]string        // seatNumber -> playerID
+	Ready           map[string]bool       // playerID -> ready status
+	OfflinePlayers  map[string]time.Time  // playerID -> 断线时间
+	Game            interfaces.Game
+	mu              sync.RWMutex
+	broadcast       chan types.Message
+	lastAction      map[string]int64      // playerID -> 上次操作时间戳（毫秒）
+	disconnectTimer *time.Timer           // 断线超时定时器
 }
 
 type Client struct {
@@ -32,14 +34,15 @@ type Client struct {
 
 func NewRoom(id, gameType string) *Room {
 	r := &Room{
-		ID:         id,
-		GameType:   gameType,
-		State:      types.RoomWaiting,
-		Players:    make(map[string]*Client),
-		Seats:      make(map[int]string),
-		Ready:      make(map[string]bool),
-		broadcast:  make(chan types.Message, 512), // 加大缓冲
-		lastAction: make(map[string]int64),
+		ID:             id,
+		GameType:       gameType,
+		State:          types.RoomWaiting,
+		Players:        make(map[string]*Client),
+		Seats:          make(map[int]string),
+		Ready:          make(map[string]bool),
+		OfflinePlayers: make(map[string]time.Time),
+		broadcast:      make(chan types.Message, 512), // 加大缓冲
+		lastAction:     make(map[string]int64),
 	}
 	g, err := game.NewGame(r.GameType)
 	if err != nil {
@@ -102,7 +105,100 @@ func (r *Room) Broadcast(msg types.Message) {
 	r.broadcast <- msg
 }
 
-// 移除玩家（用于断开连接或主动离开）
+// 标记玩家断线（游戏进行中时调用）
+func (r *Room) MarkPlayerOffline(playerID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// 只有游戏进行中才处理断线
+	if r.State != types.RoomPlaying {
+		return
+	}
+
+	// 记录断线时间
+	r.OfflinePlayers[playerID] = time.Now()
+
+	// 暂停游戏
+	r.State = types.RoomPaused
+	log.Printf("玩家 [%s] 断线，游戏暂停 [房间：%s]", playerID, r.ID)
+
+	// 广播暂停状态
+	r.broadcastRoomStateWithMessage(fmt.Sprintf("玩家 %s 断线，游戏暂停，等待重连...", playerID))
+
+	// 启动30秒超时定时器
+	if r.disconnectTimer != nil {
+		r.disconnectTimer.Stop()
+	}
+	r.disconnectTimer = time.AfterFunc(30*time.Second, func() {
+		r.handleDisconnectTimeout(playerID)
+	})
+}
+
+// 处理断线超时
+func (r *Room) handleDisconnectTimeout(playerID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// 检查玩家是否仍然断线
+	if _, stillOffline := r.OfflinePlayers[playerID]; !stillOffline {
+		return // 玩家已重连
+	}
+
+	log.Printf("玩家 [%s] 断线超时，游戏结束 [房间：%s]", playerID, r.ID)
+
+	// 结束游戏
+	r.State = types.RoomGameOver
+
+	// 广播游戏结束（断线方输）
+	r.Broadcast(types.Message{
+		Type: types.Broadcast,
+		Data: types.BroadcastData{
+			Event:   types.GameFinished,
+			Content: map[string]string{"winner": "对方获胜（玩家断线）"},
+		},
+	})
+
+	r.broadcastRoomStateWithMessage(fmt.Sprintf("玩家 %s 断线超时，游戏结束", playerID))
+}
+
+// 玩家重连
+func (r *Room) ReconnectPlayer(playerID string, sendChan chan types.Message) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// 检查是否是断线玩家
+	if _, wasOffline := r.OfflinePlayers[playerID]; !wasOffline {
+		return fmt.Errorf("玩家未断线或不在房间中")
+	}
+
+	// 更新客户端连接
+	if client, exists := r.Players[playerID]; exists {
+		client.Send = sendChan
+	}
+
+	// 移除断线标记
+	delete(r.OfflinePlayers, playerID)
+
+	// 取消超时定时器
+	if r.disconnectTimer != nil {
+		r.disconnectTimer.Stop()
+		r.disconnectTimer = nil
+	}
+
+	// 恢复游戏状态
+	if r.State == types.RoomPaused && len(r.OfflinePlayers) == 0 {
+		r.State = types.RoomPlaying
+		log.Printf("玩家 [%s] 重连成功，游戏恢复 [房间：%s]", playerID, r.ID)
+		r.broadcastRoomStateWithMessage(fmt.Sprintf("玩家 %s 重连成功，游戏继续", playerID))
+	} else {
+		log.Printf("玩家 [%s] 重连成功 [房间：%s]", playerID, r.ID)
+		r.broadcastRoomStateWithMessage(fmt.Sprintf("玩家 %s 重连成功", playerID))
+	}
+
+	return nil
+}
+
+// 移除玩家（用于正常离开房间）
 func (r *Room) RemovePlayer(playerID string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -115,6 +211,7 @@ func (r *Room) RemovePlayer(playerID string) bool {
 	delete(r.Players, playerID)
 	delete(r.Ready, playerID)
 	delete(r.lastAction, playerID)
+	delete(r.OfflinePlayers, playerID)
 
 	// 广播房间状态变更（包含玩家离开）
 	r.broadcastRoomStateWithMessage(fmt.Sprintf("玩家 %s 离开了房间", playerID))
@@ -122,6 +219,9 @@ func (r *Room) RemovePlayer(playerID string) bool {
 	// 如果房间空了，清理资源
 	isEmpty := len(r.Players) == 0
 	if isEmpty {
+		if r.disconnectTimer != nil {
+			r.disconnectTimer.Stop()
+		}
 		close(r.broadcast)
 		log.Printf("房间 [%s] 已空，资源已清理", r.ID)
 	}
@@ -282,6 +382,16 @@ func (r *Room) broadcastRoomStateInternal(message string) {
 func (r *Room) ProcessGameAction(playerID string, data types.GameActionData) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	// 检查游戏是否暂停
+	if r.State == types.RoomPaused {
+		return fmt.Errorf("游戏暂停中，等待断线玩家重连")
+	}
+
+	// 检查游戏是否已结束
+	if r.State == types.RoomGameOver {
+		return fmt.Errorf("游戏已结束")
+	}
 
 	// 防抖检查：100ms内同一玩家的重复操作将被忽略
 	now := time.Now().UnixMilli()
