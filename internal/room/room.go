@@ -15,15 +15,15 @@ type Room struct {
 	ID              string
 	GameType        string
 	State           types.RoomState
-	Players         map[string]*Client    // playerID -> Client
-	Seats           map[int]string        // seatNumber -> playerID
-	Ready           map[string]bool       // playerID -> ready status
-	OfflinePlayers  map[string]time.Time  // playerID -> 断线时间
+	Players         map[string]*Client   // playerID -> Client
+	Seats           map[int]string       // seatNumber -> playerID
+	Ready           map[string]bool      // playerID -> ready status
+	OfflinePlayers  map[string]time.Time // playerID -> 断线时间
 	Game            interfaces.Game
 	mu              sync.RWMutex
 	broadcast       chan types.Message
-	lastAction      map[string]int64      // playerID -> 上次操作时间戳（毫秒）
-	disconnectTimer *time.Timer           // 断线超时定时器
+	lastAction      map[string]int64 // playerID -> 上次操作时间戳（毫秒）
+	disconnectTimer *time.Timer      // 断线超时定时器
 }
 
 type Client struct {
@@ -513,13 +513,26 @@ func (r *Room) runBroadcast() {
 		r.mu.RLock()
 		sentCount := 0
 		for _, c := range r.Players {
-			select {
-			case c.Send <- msg:
-				sentCount++
-				log.Printf("广播消息发送给玩家 [%s] [房间：%s], 事件：%v", c.PlayerID, r.ID, msg.Data.(types.BroadcastData).Event)
-			default: // 防止单个客户端卡住影响他人
-				log.Printf("警告：玩家 [%s] 的消息队列已满，丢弃消息 [房间：%s]", c.PlayerID, r.ID)
+			// 跳过断线玩家的发送
+			if _, isOffline := r.OfflinePlayers[c.PlayerID]; isOffline {
+				continue
 			}
+			// 使用 recover 捕获可能的 panic（如 channel 已关闭）
+			func() {
+				defer func() {
+					if rec := recover(); rec != nil {
+						log.Printf("警告：向玩家 [%s] 发送消息时发生 panic: %v [房间：%s]", c.PlayerID, rec, r.ID)
+					}
+				}()
+				select {
+				case c.Send <- msg:
+					sentCount++
+					// 安全类型断言，避免 panic
+					log.Printf("广播消息发送给玩家 [%s] [房间：%s], 事件：%v", c.PlayerID, r.ID, broadcastData.Event)
+				default: // 防止单个客户端卡住影响他人
+					log.Printf("警告：玩家 [%s] 的消息队列已满，丢弃消息 [房间：%s]", c.PlayerID, r.ID)
+				}
+			}()
 		}
 		r.mu.RUnlock()
 		if sentCount == 0 {
