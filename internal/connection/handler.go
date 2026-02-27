@@ -71,6 +71,9 @@ func WSHandler(w http.ResponseWriter, r *http.Request) {
 		conn.Close()
 	}()
 
+	// 启动心跳检测
+	go heartbeat(conn, playerID)
+
 	go writePump(conn, send)
 
 	for {
