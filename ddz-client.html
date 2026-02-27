@@ -237,7 +237,7 @@
 
                 switch (event) {
                     case 'room_state_changed':
-                        // 统一房间状态变更（包含玩家加入/离开/准备/选座）
+                        // 统一房间状态变更（包含玩家加入/离开/准备）
                         handleRoomStateChanged(content);
                         break;
 
@@ -302,9 +302,19 @@
                 updateReadyButton();
             }
 
-            // 游戏开始后隐藏准备面板
+            // 游戏开始后隐藏准备面板，游戏结束后显示
             if (state === 'playing') {
                 document.getElementById('readyPanel').classList.add('hidden');
+            } else if (state === 'waiting') {
+                document.getElementById('readyPanel').classList.remove('hidden');
+                // 重置游戏相关UI
+                document.getElementById('myHand').innerHTML = '';
+                document.getElementById('actionArea').innerHTML = '';
+                document.getElementById('phase').textContent = '等待中';
+                document.getElementById('currentTurn').textContent = '';
+                document.getElementById('landlord').textContent = '未定';
+                document.getElementById('lastCard').textContent = '无';
+                selectedCards = [];
             }
 
             // 显示消息
@@ -449,7 +459,7 @@
             const landlord = state.landlord || state.Landlord || '';
             const lastPlay = state.last_play || state.LastPlay || null;
             const players = state.players || state.Players || [];
-            const hands = state.hands || state.Hands || {};
+            // 注意：现在 state 是针对当前玩家的，包含 my_hand 而不是 hands
 
             // 更新在线玩家列表（如果游戏状态中有完整玩家列表）
             if (players.length > 0) {
@@ -485,11 +495,11 @@
           </div>`;
             });
 
-            // 获取手牌（兼容不同的 key 格式）
-            const handKey = hands[playerID + '_hand'] || hands[playerID] || hands[PlayerID + '_hand'] || hands[PlayerID];
-            if (handKey) {
+            // 获取手牌（使用新的 my_hand 字段）
+            const myHand = state.my_hand || state.MyHand;
+            if (myHand) {
                 // 只在手牌真正改变时才重新渲染
-                renderMyHand(handKey);
+                renderMyHand(myHand);
             }
 
             const actionArea = document.getElementById('actionArea');

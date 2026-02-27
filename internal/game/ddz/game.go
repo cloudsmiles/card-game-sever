@@ -113,27 +113,6 @@ func (g *DdzGame) dealCards() {
 			panic(fmt.Sprintf("玩家%s手牌数量错误：期望17张，实际%d张", player, len(hand)))
 		}
 	}
-
-	// 验证总牌数唯一性（调试用）
-	allCards := make(map[int]int)
-	for _, hand := range g.hands {
-		for _, card := range hand {
-			allCards[card.Value]++
-		}
-	}
-	for _, card := range g.bottomCards {
-		allCards[card.Value]++
-	}
-	// 检查是否有重复（小王16和大王17各1张，其他牌各4张）
-	for value, count := range allCards {
-		expected := 4
-		if value == 16 || value == 17 {
-			expected = 1
-		}
-		if count != expected {
-			panic(fmt.Sprintf("牌 %d 数量错误：期望%d张，实际%d张", value, expected, count))
-		}
-	}
 }
 
 func (g *DdzGame) CurrentTurn() string {
@@ -298,6 +277,16 @@ func (g *DdzGame) ProcessAction(playerID string, action interface{}) (bool, erro
 			return true, nil
 		}
 		return false, nil
+
+		// // 测试模式：第一张牌直接获胜
+		// fmt.Printf("测试模式：玩家 %s 出第一张牌直接获胜\n", playerID)
+		// g.gameOver = true
+		// if playerID == g.landlord {
+		// 	g.winner = "地主胜"
+		// } else {
+		// 	g.winner = "农民胜"
+		// }
+		// return true, nil
 	}
 
 	return false, fmt.Errorf("未知游戏阶段")
@@ -307,14 +296,12 @@ func (g *DdzGame) AdvanceTurn() {
 	// 本游戏中 AdvanceTurn 由 ProcessAction 内部控制，不额外调用
 }
 
+// GetState 返回游戏状态（不包含具体手牌，只返回手牌数量）
 func (g *DdzGame) GetState() interface{} {
-	handsPublic := make(map[string][]int)
+	// 只返回手牌数量，不暴露具体牌面
+	handCounts := make(map[string]int)
 	for p, hand := range g.hands {
-		vals := make([]int, len(hand))
-		for i, c := range hand {
-			vals[i] = c.Value
-		}
-		handsPublic[p+"_hand"] = vals
+		handCounts[p] = len(hand)
 	}
 
 	// 构建按座位号排序的玩家信息
@@ -325,6 +312,7 @@ func (g *DdzGame) GetState() interface{} {
 				"player_id":   playerID,
 				"seat_number": seatNum,
 				"is_landlord": playerID == g.landlord,
+				"hand_count":  handCounts[playerID], // 手牌数量
 			}
 		}
 	}
@@ -340,9 +328,26 @@ func (g *DdzGame) GetState() interface{} {
 		"last_play":    g.lastPlay,
 		"game_over":    g.gameOver,
 		"winner":       g.winner,
-		"hands":        handsPublic,
+		"hand_counts":  handCounts, // 各玩家手牌数量
 		"bottom":       g.bottomCardsValues(),
 	}
+}
+
+// GetStateForPlayer 返回指定玩家的游戏状态（包含该玩家的手牌）
+func (g *DdzGame) GetStateForPlayer(playerID string) interface{} {
+	// 获取基础状态
+	baseState := g.GetState().(map[string]interface{})
+
+	// 添加该玩家的手牌
+	if hand, exists := g.hands[playerID]; exists {
+		vals := make([]int, len(hand))
+		for i, c := range hand {
+			vals[i] = c.Value
+		}
+		baseState["my_hand"] = vals
+	}
+
+	return baseState
 }
 
 // 获取当前回合玩家的座位号

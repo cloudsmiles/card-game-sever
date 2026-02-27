@@ -83,6 +83,11 @@ func (g *SimpleGame) GetState() interface{} {
 	}
 }
 
+func (g *SimpleGame) GetStateForPlayer(playerID string) interface{} {
+	// SimpleGame 直接返回完整状态（可以后续优化隐藏其他玩家手牌）
+	return g.GetState()
+}
+
 func (g *SimpleGame) IsGameOver() bool { return g.gameOver }
 func (g *SimpleGame) Winner() string   { return g.winner }
 

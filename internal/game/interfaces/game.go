@@ -7,7 +7,8 @@ type Game interface {
 	ProcessAction(playerID string, action interface{}) (bool, error) // 处理卡牌指令，返回是否结束本回合
 	CurrentTurn() string                                             // 当前回合玩家ID
 	AdvanceTurn()                                                    // 切换到下一个玩家
-	GetState() interface{}                                           // 返回完整游戏状态（用于同步给所有客户端）
+	GetState() interface{}                                           // 返回游戏状态（不包含敏感信息如其他玩家手牌）
+	GetStateForPlayer(playerID string) interface{}                   // 返回指定玩家的游戏状态（包含该玩家的手牌等私密信息）
 	IsGameOver() bool
 	Winner() string
 	MaxPlayers() int

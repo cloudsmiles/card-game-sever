@@ -241,8 +241,15 @@ func (r *Room) broadcastRoomStateWithMessage(message string) {
 	r.broadcastRoomStateInternal(message)
 }
 
-// 内部方法：广播房间状态
+// 内部方法：广播房间状态（调用者必须持有 r.mu 的读锁或写锁）
 func (r *Room) broadcastRoomStateInternal(message string) {
+	log.Printf("构建 room_state_changed 消息，当前玩家数: %d", len(r.Players))
+
+	if r.Game == nil {
+		log.Printf("错误：r.Game 为 nil")
+		return
+	}
+
 	players := make([]types.PlayerSeatInfo, 0, len(r.Players))
 	for seatNum := 0; seatNum < r.Game.MaxPlayers(); seatNum++ {
 		if playerID, exists := r.Seats[seatNum]; exists {
@@ -253,6 +260,8 @@ func (r *Room) broadcastRoomStateInternal(message string) {
 			})
 		}
 	}
+
+	log.Printf("房间 [%s] 广播状态: state=%s, players=%d, message=%s", r.ID, r.State, len(players), message)
 
 	stateMsg := types.Message{
 		Type: types.Broadcast,
@@ -296,12 +305,23 @@ func (r *Room) ProcessGameAction(playerID string, data types.GameActionData) err
 	log.Printf("检查游戏结束: IsGameOver=%v", r.Game.IsGameOver())
 	if r.Game.IsGameOver() {
 		winner := r.Game.Winner()
+		log.Printf("游戏结束，获胜者: %s", winner)
+
+		// 1. 先广播 game_over 事件
 		r.Broadcast(types.Message{
 			Type: types.Broadcast,
 			Data: types.BroadcastData{Event: types.GameFinished, Content: map[string]string{"winner": winner}},
 		})
-		// 游戏结束，重置房间状态
-		// r.resetRoomAfterGame()
+
+		// 2. 重置房间状态为 waiting
+		r.State = types.RoomWaiting
+		// 清除准备状态
+		for playerID := range r.Ready {
+			r.Ready[playerID] = false
+		}
+
+		// 3. 构建并广播 room_state_changed 事件
+		r.broadcastRoomStateWithMessage(fmt.Sprintf("游戏结束！获胜者：%s", winner))
 		return nil
 	}
 
@@ -313,15 +333,39 @@ func (r *Room) ProcessGameAction(playerID string, data types.GameActionData) err
 }
 
 // 全房间广播最新游戏状态
+// broadcastState 广播游戏状态（调用者必须持有 r.mu 的读锁或写锁）
+// 为每个玩家发送包含其手牌的个性化状态
 func (r *Room) broadcastState() {
-	stateMsg := types.Message{
-		Type: types.Broadcast,
-		Data: types.BroadcastData{
-			Event:   types.StateUpdate,
-			Content: r.Game.GetState(),
-		},
+	if r.Game == nil {
+		log.Printf("错误：broadcastState 时 r.Game 为 nil")
+		return
 	}
-	r.Broadcast(stateMsg)
+
+	// 为每个玩家发送包含其手牌的状态
+	for playerID, client := range r.Players {
+		if client == nil || client.Send == nil {
+			continue
+		}
+
+		// 获取该玩家的个性化状态（包含其手牌）
+		playerState := r.Game.GetStateForPlayer(playerID)
+
+		stateMsg := types.Message{
+			Type: types.Broadcast,
+			Data: types.BroadcastData{
+				Event:   types.StateUpdate,
+				Content: playerState,
+			},
+		}
+
+		// 非阻塞发送
+		select {
+		case client.Send <- stateMsg:
+			// 发送成功
+		default:
+			log.Printf("警告：玩家 [%s] 的消息队列已满", playerID)
+		}
+	}
 }
 
 func (r *Room) startGame() error {
@@ -352,24 +396,6 @@ func (r *Room) startGame() error {
 	})
 	log.Printf("游戏开始广播完成 [房间：%s]", r.ID)
 	return nil
-}
-
-// 游戏结束后重置房间状态
-func (r *Room) resetRoomAfterGame() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	log.Printf("游戏结束，重置房间状态 [房间：%s]", r.ID)
-
-	// 重置房间状态
-	r.State = types.RoomWaiting
-
-	// 清除所有玩家的准备状态
-	for playerID := range r.Ready {
-		r.Ready[playerID] = false
-	}
-
-	r.broadcastRoomStateWithMessage("游戏结束，等待下一局")
 }
 
 func (r *Room) runBroadcast() {
