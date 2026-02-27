@@ -166,6 +166,7 @@
         let isReady = false; // 当前玩家准备状态
         let roomPlayers = []; // 房间内玩家信息（含座位号和准备状态）
 
+
         function log(msg, color = 'text-gray-300') {
             const div = document.getElementById('gameLog');
             div.innerHTML += `<span class="${color}">[${new Date().toLocaleTimeString()}] ${msg}</span><br>`;
@@ -180,6 +181,26 @@
           <span>${content}</span>
         </div>`;
             div.scrollTop = div.scrollHeight;
+        }
+
+        // 重置连接状态
+        function resetConnectionState() {
+            ws = null;
+            currentRoomID = '';
+            isCreating = false;
+            isReady = false;
+            roomPlayers = [];
+            onlinePlayers = [];
+            selectedCards = [];
+
+            document.getElementById('connectPanel').classList.remove('hidden');
+            document.getElementById('roomPanel').classList.add('hidden');
+            document.getElementById('readyPanel').classList.add('hidden');
+            document.getElementById('roomInfo').classList.add('hidden');
+            document.getElementById('createBtn').disabled = false;
+            document.getElementById('status').innerHTML = '❌ 连接已断开，请重新连接';
+
+            resetGameUI();
         }
 
         function connect() {
@@ -213,6 +234,13 @@
 
             ws.onclose = () => {
                 log('连接已断开', 'text-red-400');
+                // 重置 UI 状态
+                resetConnectionState();
+            };
+
+            ws.onerror = (error) => {
+                log('连接错误', 'text-red-400');
+                console.error('WebSocket error:', error);
             };
         }
 

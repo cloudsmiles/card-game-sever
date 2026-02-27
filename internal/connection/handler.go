@@ -27,7 +27,29 @@ func WSHandler(w http.ResponseWriter, r *http.Request) {
 	var currentRoomID string = ""
 	send := make(chan types.Message, 256)
 
+	playerID = r.URL.Query().Get("player") // 客户端传 player=xxx
+	if playerID == "" {
+		playerID = "player_" + randomString(6)
+	}
+
+	// 检查玩家是否已连接（防止同一playerID多次连接）
+	if isPlayerConnected(playerID) {
+		log.Printf("拒绝重复连接 [玩家: %s]", playerID)
+		sendErrorMessage(conn, types.ErrorData{
+			Code:    types.ErrPlayerAlreadyConnectedCode,
+			Message: "该玩家已在其他连接中登录",
+		})
+		conn.Close()
+		return
+	}
+
+	// 标记玩家为已连接
+	setPlayerConnected(playerID, true)
+	log.Printf("玩家已连接 [玩家: %s]", playerID)
+
+	// 连接验证通过后才注册清理 defer
 	defer func() {
+		log.Printf("连接断开，开始清理资源 [玩家: %s]", playerID)
 		// 连接断开时清理资源
 		if playerID != "" && currentRoomID != "" {
 			roomObj, err := room.GlobalManager.GetRoom(currentRoomID)
@@ -39,15 +61,15 @@ func WSHandler(w http.ResponseWriter, r *http.Request) {
 					room.GlobalManager.RemoveRoom(currentRoomID)
 				}
 			}
+			// 从玩家房间追踪器中移除
+			room.GlobalPlayerTracker.RemovePlayer(playerID)
 		}
+		// 标记玩家为已断开连接
+		setPlayerConnected(playerID, false)
+		log.Printf("玩家已断开连接 [玩家: %s]", playerID)
 		close(send)
 		conn.Close()
 	}()
-
-	playerID = r.URL.Query().Get("player") // 客户端传 player=xxx
-	if playerID == "" {
-		playerID = "player_" + randomString(6)
-	}
 
 	go writePump(conn, send)
 
@@ -110,6 +132,15 @@ func WSHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleCreateRoom(conn *websocket.Conn, send chan types.Message, msg types.Message, roomIDRef *string) {
+	// 0. 检查玩家是否已在其他房间中
+	if existingRoomID, exists := room.GlobalPlayerTracker.GetPlayerRoom(msg.PlayerID); exists {
+		sendErrorMessage(conn, types.ErrorData{
+			Code:    types.ErrAlreadyInRoomCode,
+			Message: fmt.Sprintf("玩家已在房间 [%s] 中，请先离开当前房间", existingRoomID),
+		})
+		return
+	}
+
 	// 1. 类型断言和数据提取
 	createData, ok := msg.Data.(types.CreateRoomData)
 	if !ok {
@@ -157,11 +188,30 @@ func handleCreateRoom(conn *websocket.Conn, send chan types.Message, msg types.M
 		})
 		return
 	}
+	// 6. 记录玩家所在房间
+	room.GlobalPlayerTracker.SetPlayerRoom(msg.PlayerID, roomID)
 	// 设置当前房间 ID（用于断开时清理）
 	*roomIDRef = roomID
 }
 
 func handleJoinRoom(conn *websocket.Conn, send chan types.Message, msg types.Message, roomIDRef *string) {
+	// 0. 检查玩家是否已在其他房间中
+	if existingRoomID, exists := room.GlobalPlayerTracker.GetPlayerRoom(msg.PlayerID); exists {
+		// 如果已经在目标房间，提示已在房间中
+		if existingRoomID == msg.RoomID {
+			sendErrorMessage(conn, types.ErrorData{
+				Code:    types.ErrAlreadyInRoomCode,
+				Message: "玩家已在该房间中",
+			})
+			return
+		}
+		sendErrorMessage(conn, types.ErrorData{
+			Code:    types.ErrAlreadyInRoomCode,
+			Message: fmt.Sprintf("玩家已在房间 [%s] 中，请先离开当前房间", existingRoomID),
+		})
+		return
+	}
+
 	// 1. 类型断言和数据提取
 	joinData, ok := msg.Data.(types.JoinRoomData)
 	if !ok {
@@ -199,11 +249,22 @@ func handleJoinRoom(conn *websocket.Conn, send chan types.Message, msg types.Mes
 		})
 		return
 	}
+	// 5. 记录玩家所在房间
+	room.GlobalPlayerTracker.SetPlayerRoom(msg.PlayerID, joinData.RoomID)
 	// 设置当前房间 ID（用于断开时清理）
 	*roomIDRef = joinData.RoomID
 }
 
 func handleChat(conn *websocket.Conn, send chan types.Message, msg types.Message) {
+	// 0. 验证玩家是否在房间中
+	if err := validatePlayerInRoom(msg.PlayerID, msg.RoomID); err != nil {
+		sendErrorMessage(conn, types.ErrorData{
+			Code:    types.ErrPlayerNotInRoomCode,
+			Message: err.Error(),
+		})
+		return
+	}
+
 	// 1. 类型断言和数据提取
 	chatData, ok := msg.Data.(types.ChatData)
 	if !ok {
@@ -219,14 +280,6 @@ func handleChat(conn *websocket.Conn, send chan types.Message, msg types.Message
 		sendErrorMessage(conn, types.ErrorData{
 			Code:    types.ErrInvalidDataCode,
 			Message: "缺少聊天内容参数",
-		})
-		return
-	}
-
-	if msg.RoomID == "" {
-		sendErrorMessage(conn, types.ErrorData{
-			Code:    types.ErrInvalidDataCode,
-			Message: "缺少房间号参数",
 		})
 		return
 	}
@@ -254,6 +307,15 @@ func handleChat(conn *websocket.Conn, send chan types.Message, msg types.Message
 }
 
 func handleGameAction(conn *websocket.Conn, send chan types.Message, msg types.Message) {
+	// 0. 验证玩家是否在房间中
+	if err := validatePlayerInRoom(msg.PlayerID, msg.RoomID); err != nil {
+		sendErrorMessage(conn, types.ErrorData{
+			Code:    types.ErrPlayerNotInRoomCode,
+			Message: err.Error(),
+		})
+		return
+	}
+
 	// 1. 类型断言和数据提取
 	gameActionData, ok := msg.Data.(types.GameActionData)
 	if !ok {
@@ -269,14 +331,6 @@ func handleGameAction(conn *websocket.Conn, send chan types.Message, msg types.M
 		sendErrorMessage(conn, types.ErrorData{
 			Code:    types.ErrInvalidDataCode,
 			Message: "缺少游戏动作参数",
-		})
-		return
-	}
-
-	if msg.RoomID == "" {
-		sendErrorMessage(conn, types.ErrorData{
-			Code:    types.ErrInvalidDataCode,
-			Message: "缺少房间号参数",
 		})
 		return
 	}
@@ -301,21 +355,21 @@ func handleGameAction(conn *websocket.Conn, send chan types.Message, msg types.M
 }
 
 func handleRoomAction(conn *websocket.Conn, send chan types.Message, msg types.Message) {
+	// 0. 验证玩家是否在房间中
+	if err := validatePlayerInRoom(msg.PlayerID, msg.RoomID); err != nil {
+		sendErrorMessage(conn, types.ErrorData{
+			Code:    types.ErrPlayerNotInRoomCode,
+			Message: err.Error(),
+		})
+		return
+	}
+
 	// 1. 类型断言和数据提取
 	roomActionData, ok := msg.Data.(types.RoomActionData)
 	if !ok {
 		sendErrorMessage(conn, types.ErrorData{
 			Code:    types.ErrInvalidDataCode,
 			Message: "房间操作数据格式错误",
-		})
-		return
-	}
-
-	// 2. 参数验证
-	if msg.RoomID == "" {
-		sendErrorMessage(conn, types.ErrorData{
-			Code:    types.ErrInvalidDataCode,
-			Message: "缺少房间号参数",
 		})
 		return
 	}
@@ -370,4 +424,24 @@ func getString(m map[string]interface{}, key string) string {
 		return val
 	}
 	return ""
+}
+
+// validatePlayerInRoom 验证玩家是否在指定的房间中
+func validatePlayerInRoom(playerID, roomID string) error {
+	if roomID == "" {
+		return fmt.Errorf("缺少房间号参数")
+	}
+
+	// 检查玩家是否在任何房间中
+	playerRoomID, exists := room.GlobalPlayerTracker.GetPlayerRoom(playerID)
+	if !exists {
+		return fmt.Errorf("玩家不在任何房间中")
+	}
+
+	// 检查玩家是否在指定的房间中
+	if playerRoomID != roomID {
+		return fmt.Errorf("玩家不在该房间中，当前在房间 [%s]", playerRoomID)
+	}
+
+	return nil
 }

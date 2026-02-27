@@ -7,10 +7,42 @@ import (
 )
 
 var (
-	ErrRoomNotFound = fmt.Errorf("room not found")
-	ErrRoomFull     = fmt.Errorf("room is full")
-	ErrNoGame       = fmt.Errorf("game not started")
+	ErrRoomNotFound   = fmt.Errorf("room not found")
+	ErrRoomFull       = fmt.Errorf("room is full")
+	ErrNoGame         = fmt.Errorf("game not started")
+	ErrAlreadyInRoom  = fmt.Errorf("player already in another room")
+	ErrPlayerNotFound = fmt.Errorf("player not found in room")
 )
+
+// PlayerRoomTracker 追踪玩家所在的房间
+type PlayerRoomTracker struct {
+	playerRooms map[string]string // playerID -> roomID
+	mu          sync.RWMutex
+}
+
+var GlobalPlayerTracker = &PlayerRoomTracker{playerRooms: make(map[string]string)}
+
+// GetPlayerRoom 获取玩家当前所在的房间ID
+func (pt *PlayerRoomTracker) GetPlayerRoom(playerID string) (string, bool) {
+	pt.mu.RLock()
+	defer pt.mu.RUnlock()
+	roomID, exists := pt.playerRooms[playerID]
+	return roomID, exists
+}
+
+// SetPlayerRoom 设置玩家所在的房间
+func (pt *PlayerRoomTracker) SetPlayerRoom(playerID, roomID string) {
+	pt.mu.Lock()
+	defer pt.mu.Unlock()
+	pt.playerRooms[playerID] = roomID
+}
+
+// RemovePlayer 移除玩家的房间记录
+func (pt *PlayerRoomTracker) RemovePlayer(playerID string) {
+	pt.mu.Lock()
+	defer pt.mu.Unlock()
+	delete(pt.playerRooms, playerID)
+}
 
 type Manager struct {
 	rooms map[string]*Room
