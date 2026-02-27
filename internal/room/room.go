@@ -528,7 +528,9 @@ func (r *Room) runBroadcast() {
 				case c.Send <- msg:
 					sentCount++
 					// 安全类型断言，避免 panic
-					log.Printf("广播消息发送给玩家 [%s] [房间：%s], 事件：%v", c.PlayerID, r.ID, broadcastData.Event)
+					if broadcastData, ok := msg.Data.(types.BroadcastData); ok {
+						log.Printf("广播消息发送给玩家 [%s] [房间：%s], 事件：%v", c.PlayerID, r.ID, broadcastData.Event)
+					}
 				default: // 防止单个客户端卡住影响他人
 					log.Printf("警告：玩家 [%s] 的消息队列已满，丢弃消息 [房间：%s]", c.PlayerID, r.ID)
 				}
