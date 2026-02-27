@@ -2,6 +2,7 @@ package room
 
 import (
 	"fmt"
+	"log"
 	"sync"
 )
 
@@ -38,4 +39,12 @@ func (m *Manager) GetRoom(id string) (*Room, error) {
 		return nil, ErrRoomNotFound
 	}
 	return r, nil
+}
+
+// RemoveRoom 从管理器中移除房间（房间为空时调用）
+func (m *Manager) RemoveRoom(id string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.rooms, id)
+	log.Printf("房间 [%s] 已从管理器移除", id)
 }

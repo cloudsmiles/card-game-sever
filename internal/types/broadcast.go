@@ -4,29 +4,38 @@ package types
 type Event string
 
 const (
+	// 房间级别事件（包含玩家加入/离开/准备/选座等所有房间状态变化）
 	RoomStateChanged Event = "room_state_changed"
-	PlayerJoined     Event = "player_joined"
-	PlayerLeft       Event = "player_left"
-	GameStarted      Event = "game_started"
-	GameFinished     Event = "game_over"
-	StateUpdate      Event = "state_update"
-	ChatMessage      Event = "chat"
+
+	// 游戏级别事件
+	GameStarted  Event = "game_started"
+	GameFinished Event = "game_over"
+	StateUpdate  Event = "state_update" // 游戏状态更新（出牌等）
+	ChatMessage  Event = "chat"
 )
 
-type JoinRoomContent struct {
-	RoomID   string `json:"room_id"`
-	PlayerID string `json:"player_id"`
-	Message  string `json:"message"`
-}
-
-type LeftRoomContent struct {
-	RoomID   string `json:"room_id"`
-	PlayerID string `json:"player_id"`
-	Message  string `json:"message"`
+type BroadcastData struct {
+	Event   Event       `json:"event"`
+	Content interface{} `json:"content"`
 }
 
 type ChatContent struct {
 	RoomID   string `json:"room_id"`
 	PlayerID string `json:"player_id"`
 	Content  string `json:"content"`
+}
+
+// RoomStateContent 房间状态变更广播（包含玩家加入/离开/准备/选座等所有变化）
+type RoomStateContent struct {
+	RoomID  string           `json:"room_id"`
+	State   RoomState        `json:"state"`
+	Players []PlayerSeatInfo `json:"players"`
+	Message string           `json:"message"`
+}
+
+// PlayerSeatInfo 玩家座位信息
+type PlayerSeatInfo struct {
+	PlayerID   string `json:"player_id"`
+	SeatNumber int    `json:"seat_number"`
+	Ready      bool   `json:"ready"`
 }

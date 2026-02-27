@@ -32,8 +32,12 @@ func WSHandler(w http.ResponseWriter, r *http.Request) {
 		if playerID != "" && currentRoomID != "" {
 			roomObj, err := room.GlobalManager.GetRoom(currentRoomID)
 			if err == nil {
-				roomObj.RemovePlayer(playerID)
+				isEmpty := roomObj.RemovePlayer(playerID)
 				log.Printf("玩家 [%s] 离开房间 [%s]", playerID, currentRoomID)
+				// 如果房间空了，从管理器移除
+				if isEmpty {
+					room.GlobalManager.RemoveRoom(currentRoomID)
+				}
 			}
 		}
 		close(send)
@@ -76,12 +80,12 @@ func WSHandler(w http.ResponseWriter, r *http.Request) {
 		// 根据消息类型解析 data 字段
 		dataBytes, _ := json.Marshal(rawMsg["data"])
 		switch msg.Type {
-		case types.CreateRoom:
+		case types.RoomCreate:
 			var createData types.CreateRoomData
 			json.Unmarshal(dataBytes, &createData)
 			msg.Data = createData
 			handleCreateRoom(conn, send, msg, &currentRoomID)
-		case types.JoinRoom:
+		case types.RoomJoin:
 			var joinData types.JoinRoomData
 			json.Unmarshal(dataBytes, &joinData)
 			msg.Data = joinData
@@ -96,6 +100,11 @@ func WSHandler(w http.ResponseWriter, r *http.Request) {
 			json.Unmarshal(dataBytes, &actionData)
 			msg.Data = actionData
 			handleGameAction(conn, send, msg)
+		case types.RoomAction:
+			var roomActionData types.RoomActionData
+			json.Unmarshal(dataBytes, &roomActionData)
+			msg.Data = roomActionData
+			handleRoomAction(conn, send, msg)
 		}
 	}
 }
@@ -286,6 +295,46 @@ func handleGameAction(conn *websocket.Conn, send chan types.Message, msg types.M
 		sendErrorMessage(conn, types.ErrorData{
 			Code:    types.ErrInternalCode,
 			Message: fmt.Sprintf("处理游戏动作失败: %v", err),
+		})
+		return
+	}
+}
+
+func handleRoomAction(conn *websocket.Conn, send chan types.Message, msg types.Message) {
+	// 1. 类型断言和数据提取
+	roomActionData, ok := msg.Data.(types.RoomActionData)
+	if !ok {
+		sendErrorMessage(conn, types.ErrorData{
+			Code:    types.ErrInvalidDataCode,
+			Message: "房间操作数据格式错误",
+		})
+		return
+	}
+
+	// 2. 参数验证
+	if msg.RoomID == "" {
+		sendErrorMessage(conn, types.ErrorData{
+			Code:    types.ErrInvalidDataCode,
+			Message: "缺少房间号参数",
+		})
+		return
+	}
+
+	// 3. 获取房间对象
+	roomObj, err := room.GlobalManager.GetRoom(msg.RoomID)
+	if err != nil {
+		sendErrorMessage(conn, types.ErrorData{
+			Code:    types.ErrRoomNotFoundCode,
+			Message: fmt.Sprintf("房间不存在: %v", err),
+		})
+		return
+	}
+
+	// 4. 交给房间处理具体操作
+	if err := roomObj.ProcessRoomAction(msg.PlayerID, roomActionData); err != nil {
+		sendErrorMessage(conn, types.ErrorData{
+			Code:    types.ErrInternalCode,
+			Message: fmt.Sprintf("房间操作失败: %v", err),
 		})
 		return
 	}

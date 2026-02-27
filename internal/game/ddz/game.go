@@ -18,13 +18,14 @@ type Card struct {
 type Hand []Card
 
 type DdzGame struct {
-	players     []string
+	players     []string       // 按座位号排序的玩家列表 [座位0, 座位1, 座位2]
+	playerSeats map[string]int // playerID -> 座位号
 	hands       map[string]Hand
 	bottomCards Hand
 	landlord    string
 	calls       map[string]int // 叫分记录
-	callTurn    int
-	outTurn     int
+	callTurn    int            // 当前叫地主回合的座位号
+	outTurn     int            // 当前出牌回合的座位号
 	lastPlay    Play
 	lastPlayer  string // 记录最后出牌的玩家
 	passCount   int    // 记录连续pass的次数
@@ -53,6 +54,12 @@ func (g *DdzGame) Init(players []string) error {
 		return fmt.Errorf("斗地主必须正好3名玩家")
 	}
 	g.players = players
+	g.playerSeats = make(map[string]int)
+	for seatNum, playerID := range players {
+		if playerID != "" {
+			g.playerSeats[playerID] = seatNum
+		}
+	}
 	g.hands = make(map[string]Hand)
 	g.calls = make(map[string]int)
 	g.phase = "call"
@@ -66,8 +73,8 @@ func (g *DdzGame) Init(players []string) error {
 }
 
 func (g *DdzGame) dealCards() {
-	var deck Hand
 	// 创建标准54张牌
+	deck := make(Hand, 0, 54)
 	for suit := 1; suit <= 4; suit++ {
 		for v := 3; v <= 15; v++ {
 			deck = append(deck, Card{Value: v, Suit: strconv.Itoa(suit)})
@@ -82,22 +89,49 @@ func (g *DdzGame) dealCards() {
 
 	rand.Shuffle(len(deck), func(i, j int) { deck[i], deck[j] = deck[j], deck[i] })
 
-	// 发牌：每人17张，底牌3张
+	// 发牌：每人17张，底牌3张（创建独立副本避免引用问题）
 	for i, p := range g.players {
 		start := i * 17
 		end := (i + 1) * 17
 		if end > len(deck) {
 			panic("发牌越界")
 		}
-		g.hands[p] = deck[start:end]
+		// 创建手牌的独立副本
+		hand := make(Hand, 17)
+		copy(hand, deck[start:end])
+		g.hands[p] = hand
 		sort.Sort(g.hands[p])
 	}
-	g.bottomCards = deck[51:54]
+
+	// 底牌也创建独立副本
+	g.bottomCards = make(Hand, 3)
+	copy(g.bottomCards, deck[51:54])
 
 	// 验证每个玩家手牌数量
 	for player, hand := range g.hands {
 		if len(hand) != 17 {
 			panic(fmt.Sprintf("玩家%s手牌数量错误：期望17张，实际%d张", player, len(hand)))
+		}
+	}
+
+	// 验证总牌数唯一性（调试用）
+	allCards := make(map[int]int)
+	for _, hand := range g.hands {
+		for _, card := range hand {
+			allCards[card.Value]++
+		}
+	}
+	for _, card := range g.bottomCards {
+		allCards[card.Value]++
+	}
+	// 检查是否有重复（小王16和大王17各1张，其他牌各4张）
+	for value, count := range allCards {
+		expected := 4
+		if value == 16 || value == 17 {
+			expected = 1
+		}
+		if count != expected {
+			panic(fmt.Sprintf("牌 %d 数量错误：期望%d张，实际%d张", value, expected, count))
 		}
 	}
 }
@@ -161,6 +195,11 @@ func (g *DdzGame) ProcessAction(playerID string, action interface{}) (bool, erro
 
 	case "play":
 		if act.Type == "pass" {
+			// 新回合第一手牌必须出，不能pass
+			if g.lastPlay.Type == "" {
+				return false, fmt.Errorf("新回合第一手牌必须出牌，不能pass")
+			}
+
 			g.passCount++
 			g.outTurn = (g.outTurn + 1) % 3
 
@@ -196,6 +235,9 @@ func (g *DdzGame) ProcessAction(playerID string, action interface{}) (bool, erro
 			played[i] = Card{Value: int(vf)}
 		}
 
+		// 排序手牌（确保王炸等牌型判断正确）
+		sort.Sort(played)
+
 		// 添加调试信息
 		fmt.Printf("玩家 %s 尝试出牌: ", playerID)
 		for _, card := range played {
@@ -220,15 +262,21 @@ func (g *DdzGame) ProcessAction(playerID string, action interface{}) (bool, erro
 		// 移除手牌
 		g.hands[playerID] = removeCards(g.hands[playerID], played)
 
+		// 调试：显示剩余手牌数
+		fmt.Printf("玩家 %s 剩余手牌数: %d\n", playerID, len(g.hands[playerID]))
+
 		// 更新游戏状态
 		g.lastPlay = Play{Type: playType, Cards: played}
 		g.lastPlayer = playerID
 		g.passCount = 0 // 有人出牌，重置pass计数
 		g.outTurn = (g.outTurn + 1) % 3
 
-		turnEnd := len(g.hands[playerID]) == 0
+		remainingCards := len(g.hands[playerID])
+		turnEnd := remainingCards == 0
+		fmt.Printf("remainingCards=%d, turnEnd=%v, gameOver=%v\n", remainingCards, turnEnd, g.gameOver)
 
 		if turnEnd {
+			fmt.Printf("设置 gameOver=true\n")
 			g.gameOver = true
 			if playerID == g.landlord {
 				g.winner = "地主胜"
@@ -269,17 +317,40 @@ func (g *DdzGame) GetState() interface{} {
 		handsPublic[p+"_hand"] = vals
 	}
 
-	return map[string]interface{}{
-		"phase":     g.phase,
-		"players":   g.players,
-		"landlord":  g.landlord,
-		"current":   g.CurrentTurn(),
-		"last_play": g.lastPlay,
-		"game_over": g.gameOver,
-		"winner":    g.winner,
-		"hands":     handsPublic, // 只暴露 value 列表
-		"bottom":    g.bottomCardsValues(),
+	// 构建按座位号排序的玩家信息
+	playerInfos := make([]map[string]interface{}, len(g.players))
+	for seatNum, playerID := range g.players {
+		if playerID != "" {
+			playerInfos[seatNum] = map[string]interface{}{
+				"player_id":   playerID,
+				"seat_number": seatNum,
+				"is_landlord": playerID == g.landlord,
+			}
+		}
 	}
+
+	return map[string]interface{}{
+		"phase":        g.phase,
+		"players":      g.players,
+		"player_infos": playerInfos,
+		"player_seats": g.playerSeats,
+		"landlord":     g.landlord,
+		"current":      g.CurrentTurn(),
+		"current_seat": g.getCurrentSeat(),
+		"last_play":    g.lastPlay,
+		"game_over":    g.gameOver,
+		"winner":       g.winner,
+		"hands":        handsPublic,
+		"bottom":       g.bottomCardsValues(),
+	}
+}
+
+// 获取当前回合玩家的座位号
+func (g *DdzGame) getCurrentSeat() int {
+	if g.phase == "call" {
+		return g.callTurn
+	}
+	return g.outTurn
 }
 
 func (g *DdzGame) bottomCardsValues() []int {
@@ -315,9 +386,12 @@ func parsePlayType(cards Hand) (string, bool) {
 	// 调试日志
 	fmt.Printf("解析牌型 - 牌数:%d, countMap:%v\n", len(cards), countMap)
 
-	// 王炸
-	if len(cards) == 2 && cards[0].Value == 16 && cards[1].Value == 17 {
-		return "rocket", true
+	// 王炸（大王17 + 小王16，不依赖顺序）
+	if len(cards) == 2 {
+		v1, v2 := cards[0].Value, cards[1].Value
+		if (v1 == 16 && v2 == 17) || (v1 == 17 && v2 == 16) {
+			return "rocket", true
+		}
 	}
 
 	switch len(cards) {

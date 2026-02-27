@@ -59,6 +59,21 @@
             <div id="status" class="mt-3 text-sm text-gray-400"></div>
         </div>
 
+        <!-- 准备区 -->
+        <div id="readyPanel" class="hidden bg-gray-800 p-6 rounded-xl mb-8">
+            <div class="flex items-center justify-between">
+                <div>
+                    <span class="text-sm text-gray-400">房间状态：</span>
+                    <span id="roomState" class="font-bold text-lg">等待中</span>
+                </div>
+                <button id="readyBtn" onclick="toggleReady()"
+                    class="bg-yellow-600 hover:bg-yellow-700 px-8 py-3 rounded-xl font-bold">
+                    🎯 准备
+                </button>
+            </div>
+            <div id="playerList" class="mt-4 space-y-2"></div>
+        </div>
+
         <!-- 房间操作区 -->
         <div id="roomPanel" class="hidden bg-gray-800 p-6 rounded-xl mb-8">
             <div class="flex gap-6">
@@ -147,7 +162,9 @@
         let currentRoomID = '';
         let selectedCards = [];
         let isCreating = false;
-        let onlinePlayers = []; // 添加在线玩家列表
+        let onlinePlayers = []; // 在线玩家列表
+        let isReady = false; // 当前玩家准备状态
+        let roomPlayers = []; // 房间内玩家信息（含座位号和准备状态）
 
         function log(msg, color = 'text-gray-300') {
             const div = document.getElementById('gameLog');
@@ -181,8 +198,16 @@
                 log('WebSocket 连接成功', 'text-green-400');
             };
 
+            // 添加心跳
+            setInterval(() => {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ type: "ping" }));
+                }
+            }, 30000);
+
             ws.onmessage = (e) => {
                 const msg = JSON.parse(e.data);
+                console.log('收到原始消息:', e.data);
                 handleMessage(msg);
             };
 
@@ -194,12 +219,11 @@
         function handleMessage(msg) {
             // 调试：打印所有接收到的消息
             console.log('收到消息:', JSON.stringify(msg, null, 2));
-            
+
             // 统一错误处理
             if (msg.type === 'error') {
                 const errorMsg = msg.data?.message || msg.data?.Message || msg.data?.error || '未知错误';
                 log(`❌ ${errorMsg}`, 'text-red-400');
-                alert(`操作失败：${errorMsg}`);
                 return;
             }
 
@@ -208,63 +232,18 @@
                 const data = msg.data || {};
                 const event = data.event;
                 const content = data.content || {};
-                
+
                 console.log('广播事件:', event, '内容:', content);
 
-                // 处理房间相关事件
-                if ((content.room_id || data.room_id) && (event === 'room_created' || event === 'player_joined')) {
-                    currentRoomID = content.room_id || data.room_id;
-                    document.getElementById('roomInfo').classList.remove('hidden');
-                    document.getElementById('currentRoomId').textContent = currentRoomID;
-                    log(`🎉 ${content.message || '房间已就绪'}`, 'text-green-400');
-                    return;
-                }
-
-                // 根据事件类型分发处理
                 switch (event) {
-                    case 'player_joined':
-                    case 'room_created':
-                        // 房间相关事件，设置房间 ID
-                        if (!currentRoomID && (content.room_id || content.RoomID)) {
-                            currentRoomID = content.room_id || content.RoomID;
-                            document.getElementById('roomInfo').classList.remove('hidden');
-                            document.getElementById('currentRoomId').textContent = currentRoomID;
-                            log(`🎉 ${content.message || '房间已就绪'}`, 'text-green-400');
-                        }
-                        // 更新在线玩家列表
-                        if (content.player_id) {
-                            const playerId = content.player_id;
-                            if (!onlinePlayers.includes(playerId)) {
-                                onlinePlayers.push(playerId);
-                                updateOnlinePlayers();
-                                log(`👋 玩家 ${playerId} 加入了房间`, 'text-green-400');
-                            }
-                        }
-                        break;
-
-                    case 'player_left':
-                        const leftPlayerId = content.player_id || content.PlayerID;
-                        log(`👋 玩家 ${leftPlayerId} 离开了房间`, 'text-yellow-400');
-                        // 从在线玩家列表中移除
-                        const index = onlinePlayers.indexOf(leftPlayerId);
-                        if (index > -1) {
-                            onlinePlayers.splice(index, 1);
-                            updateOnlinePlayers();
-                        }
-                        if (leftPlayerId === playerID) {
-                            currentRoomID = '';
-                            document.getElementById('roomInfo').classList.add('hidden');
-                            resetGameUI();
-                            log('你已离开房间', 'text-gray-400');
-                        }
-                        break;
-
-                    case 'chat':
-                        addChat(content.player_id || content.PlayerID, content.content || content.Content);
+                    case 'room_state_changed':
+                        // 统一房间状态变更（包含玩家加入/离开/准备/选座）
+                        handleRoomStateChanged(content);
                         break;
 
                     case 'game_started':
                         log('🎮 游戏开始！', 'text-green-400');
+                        document.getElementById('readyPanel').classList.add('hidden');
                         updateGameState(content);
                         break;
 
@@ -278,10 +257,113 @@
                         alert(`游戏结束！获胜者：${winner}`);
                         break;
 
+                    case 'chat':
+                        addChat(content.player_id || content.PlayerID, content.content || content.Content);
+                        break;
+
                     default:
                         console.log('未处理的广播事件:', event, content);
                 }
             }
+        }
+
+        // 处理房间状态变更
+        function handleRoomStateChanged(content) {
+            const roomId = content.room_id || content.RoomID;
+            const state = content.state || content.State;
+            const players = content.players || content.Players || [];
+            const message = content.message || content.Message;
+
+            // 更新房间ID
+            if (roomId && !currentRoomID) {
+                currentRoomID = roomId;
+                document.getElementById('roomInfo').classList.remove('hidden');
+                document.getElementById('currentRoomId').textContent = currentRoomID;
+                document.getElementById('readyPanel').classList.remove('hidden');
+                isCreating = false;
+                document.getElementById('createBtn').disabled = false;
+            }
+
+            // 更新房间状态显示
+            const stateText = {
+                'waiting': '等待中',
+                'playing': '游戏中'
+            }[state] || state;
+            document.getElementById('roomState').textContent = stateText;
+
+            // 更新玩家列表
+            roomPlayers = players;
+            updatePlayerList();
+
+            // 更新准备按钮状态
+            const myPlayer = players.find(p => p.player_id === playerID);
+            if (myPlayer) {
+                isReady = myPlayer.ready;
+                updateReadyButton();
+            }
+
+            // 游戏开始后隐藏准备面板
+            if (state === 'playing') {
+                document.getElementById('readyPanel').classList.add('hidden');
+            }
+
+            // 显示消息
+            if (message) {
+                log(message, 'text-blue-300');
+            }
+        }
+
+        // 更新玩家列表显示
+        function updatePlayerList() {
+            const list = document.getElementById('playerList');
+            list.innerHTML = '';
+
+            roomPlayers.forEach(p => {
+                const isMe = p.player_id === playerID ? ' (我)' : '';
+                const readyStatus = p.ready ?
+                    '<span class="text-green-400">✓ 已准备</span>' :
+                    '<span class="text-gray-400">○ 未准备</span>';
+
+                list.innerHTML += `
+                    <div class="flex justify-between bg-gray-700 px-4 py-2 rounded-lg">
+                        <span>座位${p.seat_number}: ${p.player_id}${isMe}</span>
+                        ${readyStatus}
+                    </div>`;
+            });
+
+            // 更新在线玩家列表（兼容游戏状态）
+            onlinePlayers = roomPlayers.map(p => p.player_id);
+            document.getElementById('playerCount').textContent = onlinePlayers.length;
+        }
+
+        // 更新准备按钮
+        function updateReadyButton() {
+            const btn = document.getElementById('readyBtn');
+            if (isReady) {
+                btn.textContent = '✓ 取消准备';
+                btn.classList.remove('bg-yellow-600', 'hover:bg-yellow-700');
+                btn.classList.add('bg-green-600', 'hover:bg-green-700');
+            } else {
+                btn.textContent = '🎯 准备';
+                btn.classList.remove('bg-green-600', 'hover:bg-green-700');
+                btn.classList.add('bg-yellow-600', 'hover:bg-yellow-700');
+            }
+        }
+
+        // 切换准备状态
+        function toggleReady() {
+            if (!ws || !currentRoomID) return;
+
+            ws.send(JSON.stringify({
+                type: "room.action",
+                room_id: currentRoomID,
+                data: {
+                    action: "ready",
+                    data: { ready: !isReady }
+                }
+            }));
+
+            log(isReady ? '取消准备...' : '准备中...', 'text-yellow-300');
         }
 
         // 更新在线玩家列表显示
@@ -305,7 +387,7 @@
             container.innerHTML = '';
             // 注意：这里不清空selectedCards，保持当前选择状态
             hand.sort((a, b) => a - b); // 排序手牌
-            
+
             // 为每张牌创建唯一标识
             hand.forEach((v, index) => {
                 const el = document.createElement('div');
@@ -317,10 +399,10 @@
                 el.onclick = () => toggleSelect(el, v, index); // 传递索引参数
                 container.appendChild(el);
             });
-            
+
             // 重新应用选中状态（如果有的话）
             selectedCards.forEach(cardInfo => {
-                const cardEl = Array.from(container.children).find(el => 
+                const cardEl = Array.from(container.children).find(el =>
                     el.dataset.cardId === cardInfo.id
                 );
                 if (cardEl) {
@@ -332,13 +414,13 @@
         function toggleSelect(el, value, index) {
             // 创建唯一的卡片标识
             const cardId = `${value}_${index}`;
-            
+
             // 查找这个具体卡片是否已被选中
             const selectedIndex = selectedCards.findIndex(card => card.id === cardId);
-            
-            console.log('点击卡片:', {value, index, cardId});
+
+            console.log('点击卡片:', { value, index, cardId });
             console.log('当前选中列表:', selectedCards);
-            
+
             if (selectedIndex > -1) {
                 // 取消选择这张具体的牌
                 selectedCards.splice(selectedIndex, 1);
@@ -354,7 +436,7 @@
                 el.classList.add('selected');
                 log(`已选择 ${selectedCards.length} 张牌: ${selectedCards.map(c => valueToStr(c.value)).join(', ')}`, 'text-blue-300');
             }
-            
+
             console.log('更新后的选中列表:', selectedCards);
         }
 
@@ -442,41 +524,54 @@
             onlinePlayers = []; // 清空在线玩家列表
         }
 
+        let isProcessingAction = false; // 防止重复操作
+
         function playSelected() {
             if (selectedCards.length === 0) return alert('请选择至少一张牌');
-            
+            if (isProcessingAction) return; // 防止重复点击
+            isProcessingAction = true;
+
             // 提取出牌的值
             const cardsToPlay = selectedCards.map(card => card.value);
-            
+
             ws.send(JSON.stringify({
-                type: "game_action",
+                type: "game.action",
                 room_id: currentRoomID,
                 data: { action: "play_cards", card: cardsToPlay.map(v => ({ value: v })) }
             }));
-            
+
             log(`出牌: ${cardsToPlay.map(valueToStr).join(', ')}`, 'text-blue-400');
-            
+
             // 清空选择状态
             selectedCards = [];
             document.querySelectorAll('.selected').forEach(el => el.classList.remove('selected'));
+
+            // 300ms后恢复操作
+            setTimeout(() => { isProcessingAction = false; }, 300);
         }
 
         function passTurn() {
+            if (isProcessingAction) return;
+            isProcessingAction = true;
             ws.send(JSON.stringify({
-                type: "game_action",
+                type: "game.action",
                 room_id: currentRoomID,
                 data: { action: "pass" }
             }));
             log('你选择不出', 'text-yellow-400');
+            setTimeout(() => { isProcessingAction = false; }, 300);
         }
 
         function callLandlord(score) {
+            if (isProcessingAction) return;
+            isProcessingAction = true;
             ws.send(JSON.stringify({
-                type: "game_action",
+                type: "game.action",
                 room_id: currentRoomID,
                 data: { action: "call_landlord", card: score }
             }));
             log(`你叫了 ${score} 分`, 'text-blue-400');
+            setTimeout(() => { isProcessingAction = false; }, 300);
         }
 
         function valueToStr(v) {
@@ -496,7 +591,7 @@
             isCreating = true;
             document.getElementById('createBtn').disabled = true;
             ws.send(JSON.stringify({
-                type: "create_room",
+                type: "room.create",
                 data: { game_type: "ddz" }
             }));
             log('正在创建斗地主房间...', 'text-yellow-300');
@@ -507,7 +602,7 @@
             const roomId = document.getElementById('roomIdInput').value.trim();
             if (!roomId) return alert('请输入房间号');
             ws.send(JSON.stringify({
-                type: "join_room",
+                type: "room.join",
                 data: { room_id: roomId }
             }));
             log(`正在加入房间 ${roomId}...`, 'text-yellow-300');
