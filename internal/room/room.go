@@ -95,6 +95,7 @@ func (r *Room) AddPlayer(playerID string, sendChan chan types.Message) error {
 	return nil
 }
 
+// Broadcast 广播消息给所有玩家（通过channel异步发送，确保顺序）
 func (r *Room) Broadcast(msg types.Message) {
 	defer func() {
 		if recover() != nil {
@@ -102,6 +103,30 @@ func (r *Room) Broadcast(msg types.Message) {
 			log.Printf("警告：向已关闭的广播 channel 发送消息被忽略 [房间：%s]", r.ID)
 		}
 	}()
+	r.broadcast <- msg
+}
+
+// BroadcastPersonalized 广播个性化消息给每个玩家（通过channel异步发送）
+// contentFunc 根据玩家ID生成个性化内容
+func (r *Room) BroadcastPersonalized(event types.Event, contentFunc func(playerID string) interface{}) {
+	// 将个性化消息生成函数包装成特殊消息，通过channel发送
+	// 使用 BroadcastData 的 Content 字段存储生成函数
+	// runBroadcast 会识别并处理这种特殊消息
+	defer func() {
+		if recover() != nil {
+			log.Printf("警告：向已关闭的广播 channel 发送个性化消息被忽略 [房间：%s]", r.ID)
+		}
+	}()
+
+	// 创建一个包含生成函数的特殊消息
+	// 使用特殊的事件类型标记这是个性化消息
+	msg := types.Message{
+		Type: types.Broadcast,
+		Data: types.PersonalizedBroadcastData{
+			Event:       event,
+			ContentFunc: contentFunc,
+		},
+	}
 	r.broadcast <- msg
 }
 
@@ -451,31 +476,10 @@ func (r *Room) broadcastState() {
 		return
 	}
 
-	// 为每个玩家发送包含其手牌的状态
-	for playerID, client := range r.Players {
-		if client == nil || client.Send == nil {
-			continue
-		}
-
-		// 获取该玩家的个性化状态（包含其手牌）
-		playerState := r.Game.GetStateForPlayer(playerID)
-
-		stateMsg := types.Message{
-			Type: types.Broadcast,
-			Data: types.BroadcastData{
-				Event:   types.StateUpdate,
-				Content: playerState,
-			},
-		}
-
-		// 非阻塞发送
-		select {
-		case client.Send <- stateMsg:
-			// 发送成功
-		default:
-			log.Printf("警告：玩家 [%s] 的消息队列已满", playerID)
-		}
-	}
+	// 使用 BroadcastPersonalized 发送个性化状态更新
+	r.BroadcastPersonalized(types.StateUpdate, func(playerID string) interface{} {
+		return r.Game.GetStateForPlayer(playerID)
+	})
 }
 
 func (r *Room) startGame() error {
@@ -497,24 +501,33 @@ func (r *Room) startGame() error {
 	r.State = types.RoomPlaying
 	log.Printf("游戏初始化成功 [房间：%s], 玩家：%v", r.ID, playerIDs)
 
-	// 广播游戏开始（包含初始状态）
-	state := r.Game.GetState()
-	log.Printf("广播游戏开始 [房间：%s], 状态：%+v", r.ID, state)
-	r.Broadcast(types.Message{
-		Type: types.Broadcast,
-		Data: types.BroadcastData{Event: types.GameStarted, Content: state},
+	// 使用 BroadcastPersonalized 发送个性化游戏开始消息
+	r.BroadcastPersonalized(types.GameStarted, func(playerID string) interface{} {
+		return r.Game.GetStateForPlayer(playerID)
 	})
+
 	log.Printf("游戏开始广播完成 [房间：%s]", r.ID)
 	return nil
 }
 
 func (r *Room) runBroadcast() {
 	for msg := range r.broadcast {
+		// 检查是否为个性化广播消息
+		if personalizedData, ok := msg.Data.(types.PersonalizedBroadcastData); ok {
+			r.handlePersonalizedBroadcast(personalizedData)
+			continue
+		}
+
+		// 普通广播消息
 		r.mu.RLock()
 		sentCount := 0
 		for _, c := range r.Players {
 			// 跳过断线玩家的发送
 			if _, isOffline := r.OfflinePlayers[c.PlayerID]; isOffline {
+				continue
+			}
+			// 跳过没有Send channel的玩家
+			if c.Send == nil {
 				continue
 			}
 			// 使用 recover 捕获可能的 panic（如 channel 已关闭）
@@ -540,5 +553,49 @@ func (r *Room) runBroadcast() {
 		if sentCount == 0 {
 			log.Printf("警告：房间 [%s] 没有成功发送任何消息，当前玩家数：%d", r.ID, len(r.Players))
 		}
+	}
+}
+
+// handlePersonalizedBroadcast 处理个性化广播
+func (r *Room) handlePersonalizedBroadcast(data types.PersonalizedBroadcastData) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	for playerID, client := range r.Players {
+		if client == nil || client.Send == nil {
+			continue
+		}
+
+		// 跳过断线玩家
+		if _, isOffline := r.OfflinePlayers[playerID]; isOffline {
+			continue
+		}
+
+		// 生成个性化内容
+		content := data.ContentFunc(playerID)
+
+		msg := types.Message{
+			Type: types.Broadcast,
+			Data: types.BroadcastData{
+				Event:   data.Event,
+				Content: content,
+			},
+		}
+
+		// 使用 recover 捕获可能的 panic（如 channel 已关闭）
+		func() {
+			defer func() {
+				if rec := recover(); rec != nil {
+					log.Printf("警告：向玩家 [%s] 发送个性化消息时发生 panic: %v [房间：%s]", playerID, rec, r.ID)
+				}
+			}()
+			// 非阻塞发送
+			select {
+			case client.Send <- msg:
+				log.Printf("个性化广播消息发送给玩家 [%s] [房间：%s], 事件：%v", playerID, r.ID, data.Event)
+			default:
+				log.Printf("警告：玩家 [%s] 的消息队列已满，丢弃个性化消息 [房间：%s]", playerID, r.ID)
+			}
+		}()
 	}
 }

@@ -19,6 +19,12 @@ type BroadcastData struct {
 	Content interface{} `json:"content"`
 }
 
+// PersonalizedBroadcastData 个性化广播数据（用于通过channel发送个性化消息）
+type PersonalizedBroadcastData struct {
+	Event       Event
+	ContentFunc func(playerID string) interface{}
+}
+
 type ChatContent struct {
 	RoomID   string `json:"room_id"`
 	PlayerID string `json:"player_id"`

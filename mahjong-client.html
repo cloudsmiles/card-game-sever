@@ -1,0 +1,1382 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🀄 国标麻将 - 在线对战</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            font-family: 'Microsoft YaHei', 'Segoe UI', Tahoma, sans-serif;
+        }
+
+        /* 麻将牌样式 */
+        .tile {
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            cursor: pointer;
+            user-select: none;
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            border-radius: 6px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+            border: 2px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .tile:hover {
+            transform: translateY(-12px) scale(1.08);
+            box-shadow: 0 12px 24px rgba(0, 0, 0, 0.5);
+            z-index: 10;
+        }
+
+        .tile.selected {
+            transform: translateY(-20px) scale(1.1);
+            box-shadow: 0 16px 32px rgba(59, 130, 246, 0.6);
+            border: 3px solid #3b82f6;
+            outline: 2px solid #93c5fd;
+            outline-offset: 2px;
+            z-index: 20;
+        }
+
+        /* 麻将牌花色配色 */
+        .tile-wan {
+            background: linear-gradient(145deg, #fef3c7, #fde68a);
+            color: #92400e;
+            text-shadow: 0 1px 2px rgba(146, 64, 14, 0.2);
+        }
+
+        .tile-tiao {
+            background: linear-gradient(145deg, #d1fae5, #a7f3d0);
+            color: #065f46;
+            text-shadow: 0 1px 2px rgba(6, 95, 70, 0.2);
+        }
+
+        .tile-tong {
+            background: linear-gradient(145deg, #dbeafe, #bfdbfe);
+            color: #1e3a8a;
+            text-shadow: 0 1px 2px rgba(30, 58, 138, 0.2);
+        }
+
+        .tile-zi {
+            background: linear-gradient(145deg, #fecaca, #fca5a5);
+            color: #7f1d1d;
+            text-shadow: 0 1px 2px rgba(127, 29, 29, 0.2);
+            font-size: 1.1em;
+        }
+
+        .tile-back {
+            background: linear-gradient(145deg, #065f46, #047857);
+            color: #6ee7b7;
+            border-color: #34d399;
+        }
+
+        /* 小尺寸麻将牌 */
+        .tile-sm {
+            width: 32px;
+            height: 44px;
+            font-size: 0.7rem;
+        }
+
+        .tile-md {
+            width: 42px;
+            height: 58px;
+            font-size: 0.9rem;
+        }
+
+        /* 当前回合动画 */
+        .my-turn {
+            animation: pulse-glow 1.5s ease-in-out infinite;
+        }
+
+        @keyframes pulse-glow {
+
+            0%,
+            100% {
+                opacity: 1;
+                box-shadow: 0 0 12px rgba(34, 197, 94, 0.6);
+            }
+
+            50% {
+                opacity: 0.85;
+                box-shadow: 0 0 24px rgba(34, 197, 94, 0.9);
+            }
+        }
+
+        /* 最后出牌高亮 */
+        .last-discard-highlight {
+            animation: glow-pulse 1.2s infinite alternate;
+        }
+
+        @keyframes glow-pulse {
+            from {
+                box-shadow: 0 0 10px rgba(250, 204, 21, 0.6), 0 0 20px rgba(250, 204, 21, 0.4);
+            }
+
+            to {
+                box-shadow: 0 0 20px rgba(250, 204, 21, 0.9), 0 0 40px rgba(250, 204, 21, 0.6);
+            }
+        }
+
+        /* 操作按钮样式 */
+        .action-btn {
+            transition: all 0.2s ease;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .action-btn:active {
+            transform: scale(0.95);
+        }
+
+        .action-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* 座位指示器 */
+        .seat-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 6px;
+        }
+
+        .seat-active {
+            background: #22c55e;
+            box-shadow: 0 0 12px #22c55e;
+            animation: pulse-dot 1s infinite;
+        }
+
+        @keyframes pulse-dot {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.6;
+            }
+        }
+
+        .seat-inactive {
+            background: #6b7280;
+        }
+
+        /* 副露组 */
+        .meld-group {
+            display: inline-flex;
+            gap: 2px;
+            margin-right: 8px;
+            padding: 3px 6px;
+            background: rgba(0, 0, 0, 0.15);
+            border-radius: 6px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        /* 牌河 */
+        .discard-pile {
+            min-height: 50px;
+            background: rgba(0, 0, 0, 0.1);
+            border-radius: 6px;
+            padding: 4px;
+        }
+
+        /* 玩家区域边框（当前回合） */
+        .player-area {
+            transition: all 0.3s ease;
+        }
+
+        .player-area.active {
+            border-color: #22c55e !important;
+            box-shadow: 0 0 16px rgba(34, 197, 94, 0.4);
+        }
+
+        /* 庄家标识 */
+        .dealer-badge {
+            background: linear-gradient(135deg, #fbbf24, #f59e0b);
+            color: #78350f;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            box-shadow: 0 2px 6px rgba(251, 191, 36, 0.4);
+        }
+
+        /* 聊天消息 */
+        .chat-message {
+            animation: slideInRight 0.3s ease;
+        }
+
+        @keyframes slideInRight {
+            from {
+                opacity: 0;
+                transform: translateX(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        /* 日志样式 */
+        .log-entry {
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 0.75rem;
+            padding: 2px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        /* 滚动条美化 */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        /* 响应式调整 */
+        @media (max-width: 1024px) {
+            .tile-md {
+                width: 36px;
+                height: 50px;
+                font-size: 0.8rem;
+            }
+
+            .tile-sm {
+                width: 28px;
+                height: 38px;
+                font-size: 0.65rem;
+            }
+        }
+    </style>
+</head>
+
+<body class="text-white min-h-screen">
+    <div class="container mx-auto p-4 max-w-7xl">
+        <!-- 顶部标题 -->
+        <div class="text-center mb-6">
+            <h1 class="text-4xl font-bold bg-gradient-to-r from-emerald-400 to-blue-500 bg-clip-text text-transparent">
+                🀄 国标麻将在线对战
+            </h1>
+            <p class="text-gray-400 text-sm mt-2">简化版 30 番种 | 4人对局 | 实时同步</p>
+        </div>
+
+        <!-- 连接面板 -->
+        <div id="connectPanel" class="bg-gray-800/90 backdrop-blur-sm p-6 rounded-2xl mb-6 border border-gray-700">
+            <div class="flex gap-4 items-end">
+                <div class="flex-1">
+                    <label class="block text-sm mb-2 text-gray-300 font-medium">输入你的昵称</label>
+                    <input id="playerName" type="text" value="玩家1" placeholder="请输入昵称..."
+                        class="w-full bg-gray-700/80 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all text-white placeholder-gray-500">
+                </div>
+                <button onclick="connect()"
+                    class="bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 px-8 py-3 rounded-xl font-semibold shadow-lg transition-all">
+                    🚀 连接服务器
+                </button>
+            </div>
+            <div id="status" class="mt-4 text-sm text-gray-400 flex items-center gap-2">
+                <span class="inline-block w-2 h-2 bg-gray-500 rounded-full"></span>
+                等待连接...
+            </div>
+        </div>
+
+        <!-- 房间操作面板 -->
+        <div id="roomPanel" class="hidden bg-gray-800/90 backdrop-blur-sm p-6 rounded-2xl mb-6 border border-gray-700">
+            <div class="flex gap-6">
+                <button onclick="createRoom()" id="createBtn"
+                    class="flex-1 bg-gradient-to-r from-emerald-600 to-blue-600 hover:from-emerald-700 hover:to-blue-700 py-4 rounded-xl font-bold text-lg shadow-lg transition-all flex items-center justify-center gap-2">
+                    <span class="text-2xl">🀄</span>
+                    创建麻将房间
+                </button>
+                <div class="flex-1 flex gap-3">
+                    <input id="roomIdInput" placeholder="输入房间号加入..."
+                        class="flex-1 bg-gray-700/80 rounded-xl px-4 focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all text-white placeholder-gray-500">
+                    <button onclick="joinRoom()"
+                        class="bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 px-8 rounded-xl font-bold shadow-lg transition-all">
+                        加入房间
+                    </button>
+                </div>
+            </div>
+            <div id="roomInfo" class="mt-5 text-center text-lg font-semibold hidden">
+                <span class="text-gray-400">房间号：</span>
+                <span id="currentRoomId" class="text-emerald-400 font-mono"></span>
+                <button onclick="copyRoomId()"
+                    class="ml-4 bg-gray-700 hover:bg-gray-600 px-4 py-1 rounded-lg text-sm transition-all">
+                    📋 复制
+                </button>
+                <button onclick="console.log('按钮被点击'); addBot();"
+                    class="ml-4 bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-700 hover:to-red-700 px-4 py-1 rounded-lg text-sm transition-all">
+                    🤖 添加机器人
+                </button>
+            </div>
+        </div>
+
+        <!-- 准备面板 -->
+        <div id="readyPanel" class="hidden bg-gray-800/90 backdrop-blur-sm p-6 rounded-2xl mb-6 border border-gray-700">
+            <div class="flex items-center justify-between mb-6">
+                <div class="flex items-center gap-4">
+                    <span class="text-sm text-gray-400">房间状态：</span>
+                    <span id="roomState" class="font-bold text-xl text-emerald-400"></span>
+                </div>
+                <button id="readyBtn" onclick="toggleReady()"
+                    class="bg-yellow-600 hover:bg-yellow-700 px-10 py-3 rounded-xl font-bold shadow-lg transition-all">
+                    🎯 准备
+                </button>
+            </div>
+            <div id="playerList" class="grid grid-cols-2 lg:grid-cols-4 gap-4"></div>
+        </div>
+
+        <!-- 游戏主区域 -->
+        <div id="gameArea" class="hidden">
+            <div class="grid grid-cols-1 lg:grid-cols-4 gap-4">
+                <!-- 左侧信息栏 -->
+                <div class="space-y-4">
+                    <!-- 游戏信息卡片 -->
+                    <div class="bg-gray-800/90 backdrop-blur-sm rounded-xl p-4 border border-gray-700">
+                        <h3 class="font-bold mb-3 text-sm text-gray-400 uppercase tracking-wide">📊 游戏信息</h3>
+                        <div class="space-y-3 text-sm">
+                            <div class="flex justify-between items-center">
+                                <span class="text-gray-400">阶段</span>
+                                <span id="phase" class="font-bold text-emerald-400"></span>
+                            </div>
+                            <div class="flex justify-between items-center">
+                                <span class="text-gray-400">当前回合</span>
+                                <span id="currentTurn" class="font-bold"></span>
+                            </div>
+                            <div class="flex justify-between items-center">
+                                <span class="text-gray-400">庄家</span>
+                                <span id="dealerInfo" class="font-bold text-yellow-400"></span>
+                            </div>
+                            <div class="flex justify-between items-center">
+                                <span class="text-gray-400">牌墙剩余</span>
+                                <span id="wallCount" class="font-bold text-blue-400"></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 玩家列表卡片 -->
+                    <div class="bg-gray-800/90 backdrop-blur-sm rounded-xl p-4 border border-gray-700">
+                        <h3 class="font-bold mb-3 text-sm text-gray-400 uppercase tracking-wide">👥 玩家列表</h3>
+                        <div id="gamePlayers" class="space-y-2"></div>
+                    </div>
+
+                    <!-- 聊天卡片 -->
+                    <div class="bg-gray-800/90 backdrop-blur-sm rounded-xl p-4 flex flex-col border border-gray-700"
+                        style="height: 280px;">
+                        <h3 class="font-bold mb-2 text-sm text-gray-400 uppercase tracking-wide">💬 聊天室</h3>
+                        <div id="chatMessages" class="flex-1 overflow-y-auto space-y-2 text-xs"></div>
+                        <div class="flex gap-2 mt-3">
+                            <input id="chatInput" placeholder="输入消息..."
+                                class="flex-1 bg-gray-700/80 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                onkeypress="if(event.key==='Enter') sendChat()">
+                            <button onclick="sendChat()"
+                                class="bg-indigo-600 hover:bg-indigo-700 px-4 rounded-lg text-sm font-medium transition-all">
+                                发送
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 右侧游戏区 -->
+                <div class="lg:col-span-3 space-y-4">
+                    <!-- 其他玩家区域 -->
+                    <div id="otherPlayers" class="grid grid-cols-1 md:grid-cols-3 gap-3"></div>
+
+                    <!-- 最后出牌提示 -->
+                    <div id="lastDiscardArea"
+                        class="hidden bg-gradient-to-r from-yellow-900/30 to-orange-900/30 backdrop-blur-sm rounded-xl p-4 text-center border border-yellow-700/50">
+                        <div class="flex items-center justify-center gap-3">
+                            <span class="text-sm text-gray-300">最后出牌：</span>
+                            <span id="lastDiscardPlayer" class="text-sm font-bold text-yellow-400"></span>
+                            <span id="lastDiscardTile" class="inline-block"></span>
+                        </div>
+                    </div>
+
+                    <!-- 我的副露区 -->
+                    <div id="myMeldsArea"
+                        class="hidden bg-gray-800/50 backdrop-blur-sm rounded-xl px-4 py-3 border border-gray-700/50">
+                        <span class="text-xs text-gray-400 mr-3">我的副露：</span>
+                        <span id="myMelds"></span>
+                    </div>
+
+                    <!-- 我的手牌区 -->
+                    <div class="bg-gray-800/90 backdrop-blur-sm rounded-xl p-5 border border-gray-700">
+                        <div class="flex justify-between items-center mb-4">
+                            <span class="text-sm text-gray-400 font-medium">🎴 我的手牌</span>
+                            <span id="myHandCount" class="text-sm text-gray-500"></span>
+                        </div>
+                        <div id="myHand" class="flex gap-2 flex-wrap"></div>
+                    </div>
+
+                    <!-- 操作区 -->
+                    <div id="actionArea"
+                        class="bg-gray-800/90 backdrop-blur-sm rounded-xl p-5 flex gap-3 flex-wrap items-center min-h-[64px] border border-gray-700">
+                        <span class="text-sm text-gray-500">⏳ 等待游戏开始...</span>
+                    </div>
+
+                    <!-- 游戏日志 -->
+                    <div
+                        class="bg-black/60 backdrop-blur-sm h-36 overflow-y-auto rounded-xl p-4 border border-gray-700/50">
+                        <div id="gameLog" class="text-xs space-y-1"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ==================== 全局状态 ====================
+        let ws = null;
+        let playerID = '';
+        let currentRoomID = '';
+        let isReady = false;
+        let isCreating = false;
+        let roomPlayers = [];
+        let gameState = null;
+        let mySeat = -1;
+        let selectedTiles = []; // [{index, tile}]
+        let isProcessingAction = false;
+
+        // ==================== 机器人管理 ====================
+        let bots = []; // 存储机器人连接
+
+        // 机器人类
+        class MahjongBot {
+            constructor(name) {
+                this.name = name;
+                this.ws = null;
+                this.playerID = name;
+                this.roomID = '';
+                this.gameState = null;
+                this.mySeat = -1;
+            }
+
+            connect() {
+                const wsUrl = `ws://localhost:8080/ws?player=${encodeURIComponent(this.playerID)}`;
+                this.ws = new WebSocket(wsUrl);
+
+                this.ws.onopen = () => {
+                    console.log(`[Bot ${this.name}] 已连接`);
+                };
+
+                this.ws.onmessage = (event) => {
+                    try {
+                        const msg = JSON.parse(event.data);
+                        this.handleMessage(msg);
+                    } catch (e) {
+                        console.error(`[Bot ${this.name}] 消息解析错误:`, e);
+                    }
+                };
+
+                this.ws.onclose = () => {
+                    console.log(`[Bot ${this.name}] 连接已关闭`);
+                };
+
+                this.ws.onerror = (err) => {
+                    console.error(`[Bot ${this.name}] WebSocket错误:`, err);
+                };
+            }
+
+            send(msg) {
+                console.log(`[Bot ${this.name}] send() 被调用, WebSocket状态:`, this.ws?.readyState);
+                if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                    const jsonMsg = JSON.stringify(msg);
+                    console.log(`[Bot ${this.name}] 发送消息:`, jsonMsg);
+                    this.ws.send(jsonMsg);
+                } else {
+                    console.error(`[Bot ${this.name}] WebSocket未连接，无法发送消息`);
+                }
+            }
+
+            joinRoom(roomID) {
+                this.roomID = roomID;
+                this.send({
+                    type: 'room.join',
+                    data: { room_id: roomID }
+                });
+            }
+
+            ready() {
+                setTimeout(() => {
+                    const msg = {
+                        type: 'room.action',
+                        room_id: this.roomID,
+                        data: {
+                            action: 'ready',
+                            data: { ready: true }
+                        }
+                    };
+                    console.log(`[Bot ${this.name}] 发送准备消息:`, msg);
+                    console.log(`[Bot ${this.name}] WebSocket状态:`, this.ws?.readyState);
+                    this.send(msg);
+                    console.log(`[Bot ${this.name}] 已准备`);
+                }, 500 + Math.random() * 1000);
+            }
+
+            // 机器人响应逻辑
+            handleResponse(availableActions) {
+                console.log(`[Bot ${this.name}] 可用操作:`, availableActions);
+                console.log(`[Bot ${this.name}] gameState:`, this.gameState);
+
+                // 简单策略：优先级 胡 > 杠 > 碰 > 吃 > 过
+                const priority = ['win', 'kong', 'pong', 'chow', 'pass'];
+
+                for (const action of priority) {
+                    if (availableActions.includes(action)) {
+                        setTimeout(() => {
+                            let cardData = undefined;
+
+                            // 特殊处理需要额外数据的操作
+                            if (action === 'chow') {
+                                const chowOptions = this.gameState.chow_options || [];
+                                if (chowOptions.length > 0) {
+                                    // 随机选择一种吃法
+                                    const selectedIndex = Math.floor(Math.random() * chowOptions.length);
+                                    cardData = chowOptions[selectedIndex];
+                                    console.log(`[Bot ${this.name}] 选择吃牌组合:`, cardData);
+                                }
+                            } else if (action === 'kong') {
+                                const kongOptions = this.gameState.kong_options || [];
+                                if (kongOptions.length > 0) {
+                                    cardData = kongOptions[0].tile;
+                                    console.log(`[Bot ${this.name}] 选择杠牌:`, cardData);
+                                }
+                            }
+
+                            this.send({
+                                type: 'game.action',
+                                room_id: this.roomID,
+                                data: {
+                                    action: action,
+                                    card: cardData
+                                }
+                            });
+                            console.log(`[Bot ${this.name}] 响应操作:`, action, cardData ? `(card: ${JSON.stringify(cardData)})` : '');
+                        }, 1000 + Math.random() * 1000);
+                        return;
+                    }
+                }
+
+                // 默认过
+                setTimeout(() => {
+                    this.send({
+                        type: 'game.action',
+                        room_id: this.roomID,
+                        data: {
+                            action: 'pass'
+                        }
+                    });
+                    console.log(`[Bot ${this.name}] 默认选择: 过`);
+                }, 1000 + Math.random() * 1000);
+            }
+
+            // 机器人出牌逻辑
+            playTurn() {
+                console.log(`[Bot ${this.name}] playTurn被调用, gameState:`, this.gameState);
+
+                if (!this.gameState) {
+                    console.log(`[Bot ${this.name}] 没有gameState，不出牌`);
+                    return;
+                }
+
+                // 检查是否是该我出牌（current 是玩家ID）
+                const currentPlayer = this.gameState.current;
+                const isMyTurn = currentPlayer === this.playerID;
+
+                console.log(`[Bot ${this.name}] current:`, currentPlayer, 'myID:', this.playerID, 'isMyTurn:', isMyTurn);
+
+                if (!isMyTurn) {
+                    console.log(`[Bot ${this.name}] 不是该我出牌`);
+                    return;
+                }
+
+                setTimeout(() => {
+                    // 我的手牌在 my_hand 字段
+                    const myHand = this.gameState.my_hand || [];
+                    console.log(`[Bot ${this.name}] 我的手牌:`, myHand);
+                    if (myHand.length === 0) {
+                        console.log(`[Bot ${this.name}] 没有手牌，不出牌`);
+                        return;
+                    }
+
+                    // 简单策略：随机出一张牌
+                    const randomIndex = Math.floor(Math.random() * myHand.length);
+                    const tile = myHand[randomIndex];
+
+                    this.send({
+                        type: 'game.action',
+                        room_id: this.roomID,
+                        data: {
+                            action: 'discard',
+                            card: tile
+                        }
+                    });
+                    console.log(`[Bot ${this.name}] 出牌:`, tile);
+                }, 1000 + Math.random() * 2000);
+            }
+
+            handleMessage(msg) {
+                if (msg.type === 'broadcast' && msg.data) {
+                    const event = msg.data.event;
+                    const content = msg.data.content;
+
+                    switch (event) {
+                        case 'room_state_changed':
+                            // 机器人不自动准备，由真人玩家触发
+                            break;
+
+                        case 'game_started':
+                            this.gameState = content;
+                            if (content.players) {
+                                const me = content.players.find(p => p.player_id === this.playerID);
+                                if (me) {
+                                    this.mySeat = me.seat_number;
+                                }
+                            }
+                            console.log(`[Bot ${this.name}] 游戏开始，座位:`, this.mySeat);
+                            break;
+
+                        case 'state_update':
+                            this.gameState = content;
+
+                            // 检查是否有可用操作
+                            const availableActions = content.available_actions || [];
+                            if (availableActions.length > 0 && availableActions[0] !== 'discard') {
+                                // 有响应操作（吃、碰、杠、胡等）
+                                this.handleResponse(availableActions);
+                            } else {
+                                // 出牌阶段
+                                this.playTurn();
+                            }
+                            break;
+
+                        case 'game_over':
+                            console.log(`[Bot ${this.name}] 游戏结束`);
+                            setTimeout(() => {
+                                this.ready(); // 游戏结束后自动准备
+                            }, 2000);
+                            break;
+                    }
+                }
+            }
+
+            disconnect() {
+                if (this.ws) {
+                    this.ws.close();
+                }
+            }
+        }
+
+        // 添加机器人
+        function addBot() {
+            console.log('[addBot] 点击添加机器人, currentRoomID:', currentRoomID);
+            if (!currentRoomID) {
+                alert('请先创建或加入房间');
+                return;
+            }
+
+            const botNames = ['机器人东', '机器人南', '机器人西', '机器人北'];
+            const botName = botNames[bots.length % botNames.length] + '_' + Math.floor(Math.random() * 1000);
+            console.log('[addBot] 创建机器人:', botName);
+
+            const bot = new MahjongBot(botName);
+            bot.connect();
+
+            // 等待连接成功后加入房间
+            const checkConnection = () => {
+                console.log('[addBot] 检查连接状态:', bot.ws?.readyState);
+                if (bot.ws?.readyState === WebSocket.OPEN) {
+                    bot.joinRoom(currentRoomID);
+                    bots.push(bot);
+                    log(`🤖 机器人 ${botName} 已添加`, 'text-orange-400');
+                } else if (bot.ws?.readyState === WebSocket.CONNECTING) {
+                    // 还在连接中，继续等待
+                    setTimeout(checkConnection, 500);
+                } else {
+                    log(`❌ 机器人 ${botName} 连接失败`, 'text-red-400');
+                }
+            };
+            setTimeout(checkConnection, 500);
+        }
+
+        // 清理所有机器人
+        function clearBots() {
+            bots.forEach(bot => bot.disconnect());
+            bots = [];
+            log('🤖 所有机器人已清理', 'text-orange-400');
+        }
+
+        const windNames = ['东', '南', '西', '北'];
+        const suitNames = { wan: '万', tiao: '条', tong: '筒', zi: '字' };
+        const ziNames = { 1: '东', 2: '南', 3: '西', 4: '北', 5: '中', 6: '发', 7: '白' };
+
+        // 麻将牌面emoji映射（增强视觉效果）
+        const tileEmojis = {
+            wan: ['', '🀇', '🀈', '🀉', '🀊', '🀋', '🀌', '🀍', '🀎', '🀏'],
+            tiao: ['', '🀐', '🀑', '🀒', '🀓', '🀔', '🀕', '🀖', '🀗', '🀘'],
+            tong: ['', '🀙', '🀚', '🀛', '🀜', '🀝', '🀞', '🀟', '🀠', '🀡'],
+            zi: ['', '🀀', '🀁', '🀂', '🀃', '🀄', '🀅', '🀆']
+        };
+
+        // ==================== 工具函数 ====================
+
+        function tileToStr(tile) {
+            if (!tile) return '?';
+            const suit = tile.suit;
+            const rank = tile.rank;
+            if (suit === 'zi') return ziNames[rank] || '?';
+            return `${rank}${suitNames[suit] || '?'}`;
+        }
+
+        function tileToEmoji(tile) {
+            if (!tile || !tile.suit || !tile.rank) return '🀫';
+            const emojis = tileEmojis[tile.suit];
+            return emojis && emojis[tile.rank] ? emojis[tile.rank] : tileToStr(tile);
+        }
+
+        function tileSuitClass(tile) {
+            if (!tile) return 'tile-back';
+            return `tile-${tile.suit}`;
+        }
+
+        function renderTileEl(tile, opts = {}) {
+            const { small = false, selected = false, highlight = false, back = false } = opts;
+            const sizeClass = small ? 'tile-sm' : 'tile-md';
+            const suitClass = back ? 'tile-back' : tileSuitClass(tile);
+            const selClass = selected ? 'selected' : '';
+            const hlClass = highlight ? 'last-discard-highlight' : '';
+            const display = back ? '🀫' : tileToEmoji(tile);
+            const text = back ? '🀫' : tileToStr(tile);
+
+            return `<div class="tile ${suitClass} ${selClass} ${hlClass} ${sizeClass}" title="${text}">
+                ${display}
+            </div>`;
+        }
+
+        function log(msg, color = 'text-gray-300') {
+            const div = document.getElementById('gameLog');
+            if (!div) return;
+            const time = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${color}`;
+            entry.innerHTML = `<span class="text-gray-500">[${time}]</span> ${msg}`;
+            div.appendChild(entry);
+            div.scrollTop = div.scrollHeight;
+        }
+
+        function addChat(name, content) {
+            const div = document.getElementById('chatMessages');
+            const entry = document.createElement('div');
+            entry.className = 'chat-message';
+            entry.innerHTML = `<span class="text-blue-400 font-semibold">${name}：</span><span class="text-gray-200">${content}</span>`;
+            div.appendChild(entry);
+            div.scrollTop = div.scrollHeight;
+        }
+
+        // ==================== 连接管理 ====================
+
+        function connect() {
+            const name = document.getElementById('playerName').value.trim();
+            if (!name) return alert('请输入昵称');
+            playerID = name;
+
+            const url = `ws://localhost:8080/ws?player=${encodeURIComponent(name)}`;
+            ws = new WebSocket(url);
+
+            ws.onopen = () => {
+                document.getElementById('status').innerHTML = '<span class="inline-block w-2 h-2 bg-green-500 rounded-full animate-pulse"></span> ✅ 已连接到服务器';
+                document.getElementById('connectPanel').classList.add('hidden');
+                document.getElementById('roomPanel').classList.remove('hidden');
+                log('WebSocket 连接成功', 'text-green-400');
+            };
+
+            // 心跳保持
+            setInterval(() => {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ type: "ping" }));
+                }
+            }, 30000);
+
+            ws.onmessage = (e) => {
+                const msg = JSON.parse(e.data);
+                console.log('📥 收到消息:', msg);
+                handleMessage(msg);
+            };
+
+            ws.onclose = () => {
+                log('❌ 连接已断开', 'text-red-400');
+                resetAll();
+            };
+
+            ws.onerror = () => log('⚠️ 连接错误', 'text-red-400');
+        }
+
+        function resetAll() {
+            ws = null;
+            currentRoomID = '';
+            isReady = false;
+            isCreating = false;
+            gameState = null;
+            mySeat = -1;
+            selectedTiles = [];
+            // 清理机器人
+            clearBots();
+            document.getElementById('connectPanel').classList.remove('hidden');
+            document.getElementById('roomPanel').classList.add('hidden');
+            document.getElementById('readyPanel').classList.add('hidden');
+            document.getElementById('gameArea').classList.add('hidden');
+            document.getElementById('status').innerHTML = '<span class="inline-block w-2 h-2 bg-gray-500 rounded-full"></span> 等待连接...';
+        }
+
+        // ==================== 消息处理 ====================
+
+        function handleMessage(msg) {
+            if (msg.type === 'error') {
+                const errMsg = msg.data?.message || msg.data?.Message || '未知错误';
+                log(`❌ ${errMsg}`, 'text-red-400');
+                if (isCreating) {
+                    isCreating = false;
+                    document.getElementById('createBtn').disabled = false;
+                }
+                return;
+            }
+
+            if (msg.type === 'broadcast') {
+                const data = msg.data || {};
+                const event = data.event;
+                const content = data.content || {};
+
+                switch (event) {
+                    case 'room_state_changed':
+                        handleRoomStateChanged(content);
+                        break;
+                    case 'game_started':
+                        log('🎮 游戏开始！准备好了吗？', 'text-green-400');
+                        document.getElementById('readyPanel').classList.add('hidden');
+                        document.getElementById('gameArea').classList.remove('hidden');
+                        updateGameState(content);
+                        break;
+                    case 'state_update':
+                        updateGameState(content);
+                        break;
+                    case 'game_over':
+                        const winner = content.winner || '未知';
+                        log(`🏆 游戏结束！${winner}`, 'text-yellow-400');
+                        setTimeout(() => {
+                            const result = gameState?.win_result;
+                            if (result) {
+                                const fanList = result.fan_list || [];
+                                const fanText = fanList.map(f => `${f.name}(${f.fan}番)`).join('、');
+                                alert(`🎉 游戏结束！\n\n${winner}\n\n番种：${fanText}\n总计：${result.total_fan}番`);
+                            } else {
+                                alert(`🎉 游戏结束！\n\n${winner}`);
+                            }
+                        }, 300);
+                        break;
+                    case 'chat':
+                        addChat(content.player_id, content.content);
+                        break;
+                }
+            }
+        }
+
+        function handleRoomStateChanged(content) {
+            const roomId = content.room_id;
+            const state = content.state;
+            const players = content.players || [];
+            const message = content.message;
+
+            if (roomId && !currentRoomID) {
+                currentRoomID = roomId;
+                document.getElementById('roomInfo').classList.remove('hidden');
+                document.getElementById('currentRoomId').textContent = currentRoomID;
+                document.getElementById('readyPanel').classList.remove('hidden');
+                isCreating = false;
+                document.getElementById('createBtn').disabled = false;
+            }
+
+            const stateText = { waiting: '等待中', playing: '游戏中', paused: '已暂停' }[state] || state;
+            document.getElementById('roomState').textContent = stateText;
+
+            roomPlayers = players;
+            updateRoomPlayerList();
+
+            const me = players.find(p => p.player_id === playerID);
+            if (me) {
+                isReady = me.ready;
+                updateReadyButton();
+
+                // 如果真人玩家已准备，自动帮机器人准备
+                if (isReady && state === 'waiting' && bots.length > 0) {
+                    bots.forEach(bot => {
+                        // 检查机器人是否在这个房间且未准备
+                        const botPlayer = players.find(p => p.player_id === bot.playerID);
+                        if (botPlayer && !botPlayer.ready) {
+                            bot.ready();
+                        }
+                    });
+                }
+            }
+
+            if (state === 'playing') {
+                document.getElementById('readyPanel').classList.add('hidden');
+                document.getElementById('gameArea').classList.remove('hidden');
+            } else if (state === 'waiting') {
+                document.getElementById('readyPanel').classList.remove('hidden');
+                document.getElementById('gameArea').classList.add('hidden');
+                gameState = null;
+                mySeat = -1;
+                selectedTiles = [];
+            }
+
+            if (message) log(message, 'text-blue-300');
+        }
+
+        function updateRoomPlayerList() {
+            const list = document.getElementById('playerList');
+            list.innerHTML = '';
+            for (let i = 0; i < 4; i++) {
+                const p = roomPlayers.find(x => x.seat_number === i);
+                if (p) {
+                    const isMe = p.player_id === playerID ? ' (我)' : '';
+                    const ready = p.ready
+                        ? '<span class="text-green-400 text-xs font-semibold">✓ 已准备</span>'
+                        : '<span class="text-gray-500 text-xs">○ 未准备</span>';
+                    list.innerHTML += `<div class="bg-gray-700/70 px-4 py-3 rounded-xl text-center border border-gray-600 hover:bg-gray-700 transition-all">
+                        <div class="text-yellow-400 text-xs mb-1 font-bold">${windNames[i]}家</div>
+                        <div class="font-bold text-sm text-white">${p.player_id}${isMe}</div>
+                        <div class="mt-2">${ready}</div>
+                    </div>`;
+                } else {
+                    list.innerHTML += `<div class="bg-gray-700/30 px-4 py-3 rounded-xl text-center text-gray-500 border border-gray-700/50">
+                        <div class="text-xs mb-1">${windNames[i]}家</div>
+                        <div class="text-sm">空位</div>
+                        <div class="mt-2 text-xs">等待加入...</div>
+                    </div>`;
+                }
+            }
+        }
+
+        function updateReadyButton() {
+            const btn = document.getElementById('readyBtn');
+            if (isReady) {
+                btn.textContent = '✓ 取消准备';
+                btn.className = 'bg-green-600 hover:bg-green-700 px-10 py-3 rounded-xl font-bold shadow-lg transition-all';
+            } else {
+                btn.textContent = '🎯 准备';
+                btn.className = 'bg-yellow-600 hover:bg-yellow-700 px-10 py-3 rounded-xl font-bold shadow-lg transition-all';
+            }
+        }
+
+        // ==================== 游戏状态渲染 ====================
+
+        function updateGameState(state) {
+            if (!state) return;
+            gameState = state;
+
+            mySeat = state.my_seat != null ? state.my_seat : mySeat;
+            const phase = state.phase || '';
+            const currentSeat = state.current_seat;
+            const dealerSeat = state.dealer_seat;
+            const wallRemaining = state.wall_remaining;
+            const players = state.players || [];
+            const myHand = state.my_hand || [];
+            const availableActions = state.available_actions || [];
+            const lastDiscard = state.last_discard;
+            const lastDiscardSeat = state.last_discard_seat;
+
+            // 游戏信息
+            const phaseText = { play: '出牌阶段', pending: '等待响应' }[phase] || phase;
+            document.getElementById('phase').textContent = phaseText;
+
+            const currentPlayerName = players[currentSeat]?.player_id || '';
+            const turnEl = document.getElementById('currentTurn');
+            turnEl.textContent = currentPlayerName + (currentPlayerName === playerID ? ' (你)' : '');
+            turnEl.className = `font-bold ${currentPlayerName === playerID ? 'text-green-400 my-turn' : 'text-white'}`;
+
+            const dealerName = players[dealerSeat]?.player_id || '';
+            document.getElementById('dealerInfo').textContent = `${windNames[dealerSeat]}家 (${dealerName})`;
+            document.getElementById('wallCount').textContent = `${wallRemaining} 张`;
+
+            // 玩家列表
+            const gpDiv = document.getElementById('gamePlayers');
+            gpDiv.innerHTML = '';
+            players.forEach((p, i) => {
+                const isMe = p.player_id === playerID;
+                const isCurrent = i === currentSeat;
+                const isDealer = i === dealerSeat;
+                const indicator = isCurrent ? 'seat-active' : 'seat-inactive';
+                const dealerBadge = isDealer ? '<span class="dealer-badge ml-1">庄</span>' : '';
+
+                gpDiv.innerHTML += `<div class="flex items-center justify-between bg-gray-700/50 px-3 py-2 rounded-lg text-sm hover:bg-gray-700/70 transition-all">
+                    <div class="flex items-center gap-2">
+                        <span class="seat-indicator ${indicator}"></span>
+                        <span class="text-yellow-400 text-xs font-bold">${windNames[i]}</span>
+                        <span class="${isMe ? 'text-emerald-400 font-bold' : 'text-white'}">${p.player_id}${isMe ? '(我)' : ''}</span>
+                        ${dealerBadge}
+                    </div>
+                    <span class="text-gray-400 text-xs">${p.hand_count}张</span>
+                </div>`;
+            });
+
+            // 其他玩家
+            renderOtherPlayers(players, currentSeat, lastDiscardSeat);
+
+            // 最后出牌
+            if (lastDiscard && lastDiscardSeat != null) {
+                document.getElementById('lastDiscardArea').classList.remove('hidden');
+                document.getElementById('lastDiscardPlayer').textContent =
+                    `${windNames[lastDiscardSeat]}家 (${players[lastDiscardSeat]?.player_id || ''})`;
+                document.getElementById('lastDiscardTile').innerHTML = renderTileEl(lastDiscard, { highlight: true });
+            } else {
+                document.getElementById('lastDiscardArea').classList.add('hidden');
+            }
+
+            // 我的副露
+            const myMeldsData = players[mySeat]?.melds || [];
+            if (myMeldsData.length > 0) {
+                document.getElementById('myMeldsArea').classList.remove('hidden');
+                document.getElementById('myMelds').innerHTML = renderMelds(myMeldsData);
+            } else {
+                document.getElementById('myMeldsArea').classList.add('hidden');
+            }
+
+            // 我的手牌
+            renderMyHand(myHand);
+
+            // 操作按钮
+            renderActions(availableActions, state);
+        }
+
+        function renderOtherPlayers(players, currentSeat, lastDiscardSeat) {
+            const container = document.getElementById('otherPlayers');
+            container.innerHTML = '';
+
+            // 显示其他3个玩家
+            const order = [];
+            for (let i = 1; i <= 3; i++) {
+                order.push((mySeat + i) % 4);
+            }
+
+            order.forEach(seat => {
+                const p = players[seat];
+                if (!p) return;
+                const isCurrent = seat === currentSeat;
+                const borderClass = isCurrent ? 'border-emerald-500' : 'border-gray-700';
+                const activeClass = isCurrent ? 'player-area active' : 'player-area';
+
+                // 副露
+                const meldsHtml = (p.melds && p.melds.length > 0) ? `<div class="mb-2 mt-2">${renderMelds(p.melds, true)}</div>` : '';
+
+                // 牌河（最近8张）
+                const discards = p.discards || [];
+                const recentDiscards = discards.slice(-10);
+                const discardsHtml = recentDiscards.map(t => renderTileEl(t, { small: true })).join('');
+
+                // 手牌（显示背面）
+                const handHtml = Array(p.hand_count).fill(renderTileEl(null, { small: true, back: true })).join('');
+
+                container.innerHTML += `<div class="${activeClass} bg-gray-800/70 backdrop-blur-sm rounded-xl p-4 border-2 ${borderClass} transition-all">
+                    <div class="flex justify-between items-center mb-3">
+                        <div class="flex items-center gap-2">
+                            <span class="seat-indicator ${isCurrent ? 'seat-active' : 'seat-inactive'}"></span>
+                            <span class="text-yellow-400 text-xs font-bold">${windNames[seat]}</span>
+                            <span class="font-bold text-sm">${p.player_id}</span>
+                        </div>
+                        <span class="text-gray-400 text-xs bg-gray-700/50 px-2 py-1 rounded">${p.hand_count}张</span>
+                    </div>
+                    <div class="flex gap-1 flex-wrap mb-2">${handHtml}</div>
+                    ${meldsHtml}
+                    <div class="discard-pile flex gap-1 flex-wrap">${discardsHtml}</div>
+                </div>`;
+            });
+        }
+
+        function renderMelds(melds, small = false) {
+            return melds.map(m => {
+                const tiles = m.tiles || [];
+                const tilesHtml = tiles.map(t => renderTileEl(t, { small: small || false })).join('');
+                const typeLabel = { chow: '吃', pong: '碰', kong: '杠', kong_concealed: '暗杠', kong_exposed: '明杠', kong_extended: '补杠' }[m.type] || m.type;
+                return `<span class="meld-group" title="${typeLabel}">${tilesHtml}</span>`;
+            }).join('');
+        }
+
+        function renderMyHand(hand) {
+            const container = document.getElementById('myHand');
+            container.innerHTML = '';
+            document.getElementById('myHandCount').textContent = `${hand.length} 张`;
+
+            // 清理不在手牌中的已选牌
+            selectedTiles = selectedTiles.filter(s => s.index < hand.length);
+
+            hand.forEach((tile, index) => {
+                const isSelected = selectedTiles.some(s => s.index === index);
+                const el = document.createElement('div');
+                el.innerHTML = renderTileEl(tile, { selected: isSelected });
+                const tileEl = el.firstElementChild;
+                tileEl.dataset.index = index;
+                tileEl.onclick = () => toggleTileSelect(index, tile);
+                container.appendChild(tileEl);
+            });
+        }
+
+        function toggleTileSelect(index, tile) {
+            const existing = selectedTiles.findIndex(s => s.index === index);
+            if (existing > -1) {
+                selectedTiles.splice(existing, 1);
+            } else {
+                selectedTiles.push({ index, tile });
+            }
+            // 重新渲染手牌以更新选中状态
+            if (gameState && gameState.my_hand) {
+                renderMyHand(gameState.my_hand);
+            }
+        }
+
+        function renderActions(actions, state) {
+            const area = document.getElementById('actionArea');
+            area.innerHTML = '';
+
+            if (!actions || actions.length === 0) {
+                area.innerHTML = '<span class="text-sm text-gray-500">⏳ 等待其他玩家操作...</span>';
+                return;
+            }
+
+            const phase = state.phase;
+
+            if (actions.includes('discard')) {
+                area.innerHTML += `<button onclick="doDiscard()" class="action-btn bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 px-6 py-3 rounded-xl font-bold shadow-lg">
+                    ♠ 出牌
+                </button>`;
+            }
+            if (actions.includes('win')) {
+                area.innerHTML += `<button onclick="doWin()" class="action-btn bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 px-6 py-3 rounded-xl font-bold animate-pulse shadow-lg">
+                    🎉 胡牌！
+                </button>`;
+            }
+            if (actions.includes('kong')) {
+                area.innerHTML += `<button onclick="doKong()" class="action-btn bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 px-6 py-3 rounded-xl font-bold shadow-lg">
+                    杠
+                </button>`;
+            }
+            if (actions.includes('pong')) {
+                area.innerHTML += `<button onclick="doPong()" class="action-btn bg-gradient-to-r from-orange-600 to-orange-700 hover:from-orange-700 hover:to-orange-800 px-6 py-3 rounded-xl font-bold shadow-lg">
+                    碰
+                </button>`;
+            }
+            if (actions.includes('chow')) {
+                area.innerHTML += `<button onclick="doChow()" class="action-btn bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 px-6 py-3 rounded-xl font-bold shadow-lg">
+                    吃
+                </button>`;
+            }
+            if (actions.includes('pass')) {
+                area.innerHTML += `<button onclick="doPass()" class="action-btn bg-gradient-to-r from-gray-600 to-gray-700 hover:from-gray-700 hover:to-gray-800 px-6 py-3 rounded-xl font-bold shadow-lg">
+                    过
+                </button>`;
+            }
+
+            // 通用工具按钮
+            if (actions.includes('discard')) {
+                area.innerHTML += `<button onclick="clearSelection()" class="action-btn bg-gray-700/70 hover:bg-gray-600 px-5 py-3 rounded-xl text-sm font-medium border border-gray-600">
+                    清空选择
+                </button>`;
+            }
+        }
+
+        // ==================== 游戏操作 ====================
+
+        function sendGameAction(action, card = undefined) {
+            if (isProcessingAction) return;
+            isProcessingAction = true;
+            ws.send(JSON.stringify({
+                type: "game.action",
+                room_id: currentRoomID,
+                data: { action, card }
+            }));
+            setTimeout(() => { isProcessingAction = false; }, 300);
+        }
+
+        function doDiscard() {
+            if (selectedTiles.length !== 1) {
+                alert('⚠️ 请选择1张牌出牌');
+                return;
+            }
+            const tile = selectedTiles[0].tile;
+            log(`✅ 出牌: ${tileToStr(tile)}`, 'text-emerald-400');
+            sendGameAction('discard', tile);
+            selectedTiles = [];
+        }
+
+        function doWin() {
+            log('🎉 胡牌！', 'text-red-400');
+            sendGameAction('win');
+        }
+
+        function doPass() {
+            log('➡️ 过', 'text-gray-400');
+            sendGameAction('pass');
+        }
+
+        function doPong() {
+            log('🔶 碰！', 'text-orange-400');
+            sendGameAction('pong');
+        }
+
+        function doKong() {
+            // 如果是pending阶段（明杠），直接发送
+            if (gameState && gameState.phase === 'pending') {
+                log('🔷 杠！', 'text-purple-400');
+                sendGameAction('kong');
+                return;
+            }
+            // play阶段：暗杠/补杠需要选择牌
+            const kongOptions = gameState?.kong_options || [];
+            if (kongOptions.length === 1) {
+                log(`🔷 杠: ${tileToStr(kongOptions[0].tile)}`, 'text-purple-400');
+                sendGameAction('kong', kongOptions[0].tile);
+            } else if (kongOptions.length > 1) {
+                // 如果选择了牌，使用选中的
+                if (selectedTiles.length === 1) {
+                    sendGameAction('kong', selectedTiles[0].tile);
+                    selectedTiles = [];
+                } else {
+                    alert('⚠️ 请选择要杠的牌');
+                }
+            } else if (selectedTiles.length > 0) {
+                sendGameAction('kong', selectedTiles[0].tile);
+                selectedTiles = [];
+            }
+        }
+
+        function doChow() {
+            const chowOptions = gameState?.chow_options || [];
+            if (chowOptions.length === 0) {
+                alert('⚠️ 没有可吃的组合');
+                return;
+            }
+
+            if (selectedTiles.length === 2) {
+                // 用户选择了2张手牌
+                const tiles = selectedTiles.map(s => s.tile);
+                log(`🔹 吃: ${tiles.map(tileToStr).join(' ')}`, 'text-blue-400');
+                sendGameAction('chow', tiles);
+                selectedTiles = [];
+                return;
+            }
+
+            if (chowOptions.length === 1) {
+                // 只有一种吃法
+                log(`🔹 吃: ${chowOptions[0].map(tileToStr).join(' ')}`, 'text-blue-400');
+                sendGameAction('chow', chowOptions[0]);
+            } else {
+                // 多种吃法，提示用户选择2张手牌
+                const optText = chowOptions.map((opt, i) => `${i + 1}: ${opt.map(tileToStr).join('+')}`).join('\n');
+                const choice = prompt(`检测到多种吃法，请输入序号:\n\n${optText}`);
+                if (choice && chowOptions[parseInt(choice) - 1]) {
+                    const selected = chowOptions[parseInt(choice) - 1];
+                    log(`🔹 吃: ${selected.map(tileToStr).join(' ')}`, 'text-blue-400');
+                    sendGameAction('chow', selected);
+                }
+            }
+        }
+
+        function clearSelection() {
+            selectedTiles = [];
+            if (gameState && gameState.my_hand) {
+                renderMyHand(gameState.my_hand);
+            }
+            log('🗑️ 已清空选择', 'text-gray-400');
+        }
+
+        // ==================== 房间操作 ====================
+
+        function createRoom() {
+            if (!ws || isCreating) return;
+            isCreating = true;
+            document.getElementById('createBtn').disabled = true;
+            ws.send(JSON.stringify({
+                type: "room.create",
+                data: { game_type: "mahjong" }
+            }));
+            log('🔨 正在创建麻将房间...', 'text-yellow-300');
+        }
+
+        function joinRoom() {
+            if (!ws) return;
+            const roomId = document.getElementById('roomIdInput').value.trim();
+            if (!roomId) return alert('⚠️ 请输入房间号');
+            ws.send(JSON.stringify({
+                type: "room.join",
+                data: { room_id: roomId }
+            }));
+            log(`🚪 正在加入房间 ${roomId}...`, 'text-yellow-300');
+            document.getElementById('roomIdInput').value = '';
+        }
+
+        function toggleReady() {
+            if (!ws || !currentRoomID) return;
+            ws.send(JSON.stringify({
+                type: "room.action",
+                room_id: currentRoomID,
+                data: { action: "ready", data: { ready: !isReady } }
+            }));
+        }
+
+        function sendChat() {
+            const input = document.getElementById('chatInput');
+            const content = input.value.trim();
+            if (!content || !currentRoomID) return;
+            ws.send(JSON.stringify({
+                type: "chat",
+                room_id: currentRoomID,
+                data: { content }
+            }));
+            addChat(playerID, content);
+            input.value = '';
+        }
+
+        function copyRoomId() {
+            navigator.clipboard.writeText(currentRoomID).then(() => {
+                alert('✅ 房间号已复制到剪贴板！');
+            }).catch(() => {
+                alert('❌ 复制失败，请手动复制：' + currentRoomID);
+            });
+        }
+
+        // 页面加载完成
+        log('🎴 麻将客户端已就绪，请输入昵称并连接服务器', 'text-yellow-300');
+
+        // 页面关闭时清理机器人
+        window.addEventListener('beforeunload', () => {
+            clearBots();
+        });
+    </script>
+</body>
+
+</html>

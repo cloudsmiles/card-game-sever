@@ -4,10 +4,10 @@ package types
 type RoomState string
 
 const (
-	RoomWaiting   RoomState = "waiting"   // 等待中（可加入、可准备）
-	RoomPlaying   RoomState = "playing"   // 游戏中
-	RoomPaused    RoomState = "paused"    // 游戏暂停（有玩家断线）
-	RoomGameOver  RoomState = "gameover"  // 游戏结束
+	RoomWaiting  RoomState = "waiting"  // 等待中（可加入、可准备）
+	RoomPlaying  RoomState = "playing"  // 游戏中
+	RoomPaused   RoomState = "paused"   // 游戏暂停（有玩家断线）
+	RoomGameOver RoomState = "gameover" // 游戏结束
 )
 
 // 消息类型枚举
