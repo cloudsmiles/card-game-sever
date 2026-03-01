@@ -130,27 +130,35 @@ func (r *Room) BroadcastPersonalized(event types.Event, contentFunc func(playerI
 	r.broadcast <- msg
 }
 
-// 标记玩家断线（游戏进行中时调用）
+// 标记玩家断线（游戏进行中或暂停时调用）
 func (r *Room) MarkPlayerOffline(playerID string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// 只有游戏进行中才处理断线
-	if r.State != types.RoomPlaying {
+	// 只有游戏进行中或暂停状态才处理断线
+	if r.State != types.RoomPlaying && r.State != types.RoomPaused {
+		return
+	}
+
+	// 如果已经标记为断线，不再重复处理
+	if _, alreadyOffline := r.OfflinePlayers[playerID]; alreadyOffline {
 		return
 	}
 
 	// 记录断线时间
 	r.OfflinePlayers[playerID] = time.Now()
+	log.Printf("玩家 [%s] 标记为断线 [房间：%s]", playerID, r.ID)
 
-	// 暂停游戏
-	r.State = types.RoomPaused
-	log.Printf("玩家 [%s] 断线，游戏暂停 [房间：%s]", playerID, r.ID)
+	// 只有游戏进行中时才暂停游戏（避免重复暂停）
+	if r.State == types.RoomPlaying {
+		r.State = types.RoomPaused
+		log.Printf("玩家 [%s] 断线，游戏暂停 [房间：%s]", playerID, r.ID)
 
-	// 广播暂停状态
-	r.broadcastRoomStateWithMessage(fmt.Sprintf("玩家 %s 断线，游戏暂停，等待重连...", playerID))
+		// 广播暂停状态
+		r.broadcastRoomStateWithMessage(fmt.Sprintf("玩家 %s 断线，游戏暂停，等待重连...", playerID))
+	}
 
-	// 启动30秒超时定时器
+	// 启动/重置30秒超时定时器（以最后一个断线玩家为准）
 	if r.disconnectTimer != nil {
 		r.disconnectTimer.Stop()
 	}
@@ -184,6 +192,31 @@ func (r *Room) handleDisconnectTimeout(playerID string) {
 	})
 
 	r.broadcastRoomStateWithMessage(fmt.Sprintf("玩家 %s 断线超时，游戏结束", playerID))
+
+	// 清理所有断线玩家（不只是当前超时的玩家）
+	for offlinePlayerID := range r.OfflinePlayers {
+		if client, exists := r.Players[offlinePlayerID]; exists && client.SeatNumber >= 0 {
+			delete(r.Seats, client.SeatNumber)
+		}
+		delete(r.Players, offlinePlayerID)
+		delete(r.Ready, offlinePlayerID)
+		delete(r.lastAction, offlinePlayerID)
+		GlobalPlayerTracker.RemovePlayer(offlinePlayerID)
+		log.Printf("玩家 [%s] 已从房间移除 [房间：%s]", offlinePlayerID, r.ID)
+	}
+	// 清空 OfflinePlayers 映射
+	r.OfflinePlayers = make(map[string]time.Time)
+
+	log.Printf("所有断线玩家已清理 [房间：%s]，当前剩余玩家: %d", r.ID, len(r.Players))
+
+	// 如果房间空了，清理资源
+	if len(r.Players) == 0 {
+		if r.disconnectTimer != nil {
+			r.disconnectTimer.Stop()
+		}
+		close(r.broadcast)
+		log.Printf("房间 [%s] 已空，资源已清理", r.ID)
+	}
 }
 
 // 玩家重连
@@ -230,13 +263,20 @@ func (r *Room) RemovePlayer(playerID string) bool {
 
 	// 释放座位
 	client, exists := r.Players[playerID]
-	if exists && client.SeatNumber >= 0 {
+	if !exists {
+		return len(r.Players) == 0
+	}
+
+	if client.SeatNumber >= 0 {
 		delete(r.Seats, client.SeatNumber)
 	}
 	delete(r.Players, playerID)
 	delete(r.Ready, playerID)
 	delete(r.lastAction, playerID)
 	delete(r.OfflinePlayers, playerID)
+
+	// 从 GlobalPlayerTracker 移除
+	GlobalPlayerTracker.RemovePlayer(playerID)
 
 	// 广播房间状态变更（包含玩家离开）
 	r.broadcastRoomStateWithMessage(fmt.Sprintf("玩家 %s 离开了房间", playerID))
@@ -368,7 +408,22 @@ func (r *Room) broadcastRoomStateWithMessage(message string) {
 
 // 内部方法：广播房间状态（调用者必须持有 r.mu 的读锁或写锁）
 func (r *Room) broadcastRoomStateInternal(message string) {
-	log.Printf("构建 room_state_changed 消息，当前玩家数: %d", len(r.Players))
+	// 计算在线玩家数（不包括断线玩家）并打印详细信息
+	onlineCount := 0
+	onlinePlayers := []string{}
+	offlinePlayers := []string{}
+	for playerID := range r.Players {
+		if _, isOffline := r.OfflinePlayers[playerID]; isOffline {
+			offlinePlayers = append(offlinePlayers, playerID)
+		} else {
+			onlineCount++
+			onlinePlayers = append(onlinePlayers, playerID)
+		}
+	}
+	log.Printf("构建 room_state_changed 消息，总玩家数: %d, 在线玩家数: %d", len(r.Players), onlineCount)
+	log.Printf("  在线玩家: %v", onlinePlayers)
+	log.Printf("  断线玩家: %v", offlinePlayers)
+	log.Printf("  OfflinePlayers 映射: %v", r.OfflinePlayers)
 
 	if r.Game == nil {
 		log.Printf("错误：r.Game 为 nil")
@@ -386,7 +441,7 @@ func (r *Room) broadcastRoomStateInternal(message string) {
 		}
 	}
 
-	log.Printf("房间 [%s] 广播状态: state=%s, players=%d, message=%s", r.ID, r.State, len(players), message)
+	log.Printf("房间 [%s] 广播状态: state=%s, 总玩家数=%d, 在线玩家数=%d, message=%s", r.ID, r.State, len(r.Players), onlineCount, message)
 
 	stateMsg := types.Message{
 		Type: types.Broadcast,

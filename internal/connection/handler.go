@@ -66,8 +66,8 @@ func WSHandler(w http.ResponseWriter, r *http.Request) {
 		if playerID != "" && currentRoomID != "" {
 			roomObj, err := room.GlobalManager.GetRoom(currentRoomID)
 			if err == nil {
-				// 游戏进行中时标记为断线，否则直接移除
-				if roomObj.State == types.RoomPlaying {
+				// 游戏进行中或暂停时标记为断线，其他状态直接移除
+				if roomObj.State == types.RoomPlaying || roomObj.State == types.RoomPaused {
 					roomObj.MarkPlayerOffline(playerID)
 					log.Printf("玩家 [%s] 游戏中断线，已标记 [房间：%s]", playerID, currentRoomID)
 				} else {
@@ -77,8 +77,6 @@ func WSHandler(w http.ResponseWriter, r *http.Request) {
 					if isEmpty {
 						room.GlobalManager.RemoveRoom(currentRoomID)
 					}
-					// 从玩家房间追踪器中移除
-					room.GlobalPlayerTracker.RemovePlayer(playerID)
 				}
 			}
 		}
@@ -90,11 +88,18 @@ func WSHandler(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	// 启动心跳检测
-	go heartbeat(conn, playerID)
+	heartbeatDone := heartbeat(conn, playerID)
 
 	go writePump(conn, send)
 
 	for {
+		select {
+		case <-heartbeatDone:
+			log.Printf("心跳超时，连接断开 [%s]", playerID)
+			return
+		default:
+		}
+
 		_, msgBytes, err := conn.ReadMessage()
 		if err != nil {
 			log.Printf("连接读取错误 [%s]: %v", playerID, err)
