@@ -50,10 +50,13 @@ func NewDeck() *Deck {
 	}
 
 	// 3张猩猩兄妹牌
+	// 米奇（哥哥）：取消数量为3的水果订单（左或右）
+	// 南茜（妹妹）：取消香蕉订单
+	// 墨菲（弟弟）：无事发生
 	gorillaCards := []*GorillaCard{
-		{ID: 101, Type: CardTypeGorilla, Ability: AbilityCancelDurian, Description: "取消本轮所有榴莲订单"},
-		{ID: 102, Type: CardTypeGorilla, Ability: AbilityCancelBanana, Description: "取消本轮所有香蕉订单"},
-		{ID: 103, Type: CardTypeGorilla, Ability: AbilityCancelGrape, Description: "取消本轮所有葡萄订单"},
+		{ID: 101, Type: CardTypeGorilla, Ability: AbilityCancelCount3, Description: "米奇：取消数量为3的水果订单"},
+		{ID: 102, Type: CardTypeGorilla, Ability: AbilityCancelBanana, Description: "南茜：取消香蕉订单"},
+		{ID: 103, Type: CardTypeGorilla, Ability: AbilityDoNothing, Description: "墨菲：无事发生"},
 	}
 
 	for _, gc := range gorillaCards {
@@ -106,4 +109,14 @@ func (d *Deck) Remaining() int {
 // DiscardCount 返回废牌堆牌数
 func (d *Deck) DiscardCount() int {
 	return len(d.discardPile)
+}
+
+// ReshuffleAll 将所有牌（主牌堆+废牌堆）重新洗牌
+// 用于新一轮开始时，将上一轮的牌架卡重新混入牌堆
+func (d *Deck) ReshuffleAll() {
+	// 将所有牌合并到主牌堆
+	d.cards = append(d.cards, d.discardPile...)
+	d.discardPile = d.discardPile[:0]
+	// 重新洗牌
+	d.Shuffle()
 }

@@ -44,4 +44,5 @@ type PlayerSeatInfo struct {
 	PlayerID   string `json:"player_id"`
 	SeatNumber int    `json:"seat_number"`
 	Ready      bool   `json:"ready"`
+	IsOffline  bool   `json:"is_offline"` // 是否断线
 }

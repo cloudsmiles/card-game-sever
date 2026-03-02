@@ -22,9 +22,9 @@ const (
 type GorillaAbility string
 
 const (
-	AbilityCancelDurian GorillaAbility = "cancel_durian" // 取消榴莲订单
-	AbilityCancelBanana GorillaAbility = "cancel_banana" // 取消香蕉订单
-	AbilityCancelGrape  GorillaAbility = "cancel_grape"  // 取消葡萄订单
+	AbilityCancelBanana GorillaAbility = "cancel_banana" // 南茜：取消香蕉订单
+	AbilityCancelCount3 GorillaAbility = "cancel_count3" // 米奇：取消数量为3的水果订单（左或右）
+	AbilityDoNothing    GorillaAbility = "do_nothing"    // 墨菲：无事发生
 )
 
 // Card 统一卡牌接口

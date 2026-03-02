@@ -395,10 +395,18 @@
                             <span class="text-xs text-gray-400 font-normal">选择一个行动</span>
                         </div>
                         <div class="space-y-3">
-                            <!-- 接新订单：需要先选择左/右面 -->
+                            <!-- 接新订单：需要先翻牌，再选择左/右面 -->
                             <div class="bg-gray-700/50 rounded-xl p-4">
                                 <div class="text-sm text-gray-300 mb-3 font-semibold">🛒 接新订单（从牌堆翻一张牌，选择哪面水果加入订单区）</div>
-                                <div class="flex gap-3 flex-wrap" id="orderButtons">
+                                <!-- 第一步：翻牌按钮 -->
+                                <div id="flipCardArea" class="flex justify-center">
+                                    <button onclick="flipCard()" id="btnFlip"
+                                        class="action-btn bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 py-3 px-8 rounded-xl font-bold text-lg transition-all duration-300">
+                                        🎴 翻牌
+                                    </button>
+                                </div>
+                                <!-- 第二步：选择左右面按钮（翻牌后显示） -->
+                                <div class="flex gap-3 flex-wrap hidden" id="orderButtons">
                                     <button onclick="previewChoice('left')" id="btnLeft"
                                         class="action-btn flex-1 min-w-32 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 py-3 px-4 rounded-xl font-bold text-lg transition-all duration-300">
                                         ← 选左面
@@ -416,7 +424,7 @@
                                 </div>
                             </div>
                             <!-- 摇铃 -->
-                            <button onclick="ringBell()"
+                            <button onclick="ringBell()" id="ringBellArea"
                                 class="action-btn w-full bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-500 hover:to-orange-500 py-4 rounded-xl font-black text-xl">
                                 🔔 摇铃检查库存！（我认为已经缺货）
                             </button>
@@ -535,9 +543,9 @@
         };
 
         const GORILLA_ABILITY_NAME = {
-            cancel_durian: '🍈 取消所有榴莲订单',
-            cancel_banana: '🍌 取消所有香蕉订单',
-            cancel_grape: '🍇 取消所有葡萄订单'
+            cancel_banana: '🍌 南茜：香蕉库存无限',
+            cancel_count3: '🦍 米奇：去除数量为3的水果库存',
+            do_nothing: '😴 墨菲：无事发生'
         };
 
         const PHASE_NAME = {
@@ -576,6 +584,7 @@
                 this.playerID = name;
                 this.roomID = '';
                 this.gameState = null;
+                this.isActing = false; // 防止重复行动
             }
 
             connect(serverAddr = 'localhost:8080') {
@@ -638,38 +647,47 @@
             // 机器人回合逻辑
             playTurn() {
                 console.log(`[Bot ${this.name}] playTurn, gameState:`, this.gameState);
-
+            
                 if (!this.gameState) {
-                    console.log(`[Bot ${this.name}] 没有gameState`);
+                    console.log(`[Bot ${this.name}] 没有 gameState`);
                     return;
                 }
-
+            
                 const currentPlayer = this.gameState.current;
                 const isMyTurn = currentPlayer === this.playerID;
                 const phase = this.gameState.phase;
-
+            
                 console.log(`[Bot ${this.name}] current:`, currentPlayer, 'myID:', this.playerID, 'isMyTurn:', isMyTurn, 'phase:', phase);
-
+            
+                // 防止重复行动：如果已经在行动中，忽略这次调用
+                if (this.isActing) {
+                    console.log(`[Bot ${this.name}] 正在行动中，忽略重复调用`);
+                    return;
+                }
+            
                 if (!isMyTurn || phase !== 'playing') {
                     console.log(`[Bot ${this.name}] 不是我的回合或非出牌阶段`);
                     return;
                 }
-
+            
+                // 标记为正在行动
+                this.isActing = true;
+            
                 setTimeout(() => {
                     // 简单策略：
                     // - 85% 概率接新订单（随机选左/右）
                     // - 15% 概率摇铃（当订单数量较大时）
                     const orders = this.gameState.orders || {};
                     const totalOrders = Object.values(orders).reduce((a, b) => a + b, 0);
-
+            
                     // 根据订单数量调整摇铃概率
                     let ringBellChance = 0.05;  // 基础 5%
                     if (totalOrders > 8) ringBellChance = 0.15;
                     if (totalOrders > 12) ringBellChance = 0.25;
                     if (totalOrders > 16) ringBellChance = 0.40;
-
+            
                     const shouldRingBell = Math.random() < ringBellChance && totalOrders > 3;
-
+            
                     if (shouldRingBell) {
                         // 摇铃
                         this.send({
@@ -689,9 +707,12 @@
                                 card: { chosen_side: chosenSide }
                             }
                         });
-                        console.log(`[Bot ${this.name}] 接订单: ${chosenSide}`);
+                        console.log(`[Bot ${this.name}] 接订单：${chosenSide}`);
                     }
-                }, 1500 + Math.random() * 2000);  // 1.5~3.5秒延迟，模拟思考
+                                
+                    // 行动完成后重置标志
+                    this.isActing = false;
+                }, 1500 + Math.random() * 2000);  // 1.5~3.5 秒延迟，模拟思考
             }
 
             handleMessage(msg) {
@@ -893,7 +914,7 @@
                 </div>`;
         }
 
-        // 构建历史记录项HTML
+        // 构建历史记录项HTML - 翻转卡显示（选择的在右边高亮，没选择的在左边变暗）
         function buildHistoryItem(playerName, card, chosenSide, timestamp) {
             const leftFruit = card.left_fruit || '';
             const rightFruit = card.right_fruit || '';
@@ -902,32 +923,50 @@
             const leftEmoji = FRUIT_EMOJI[leftFruit] || '❓';
             const rightEmoji = FRUIT_EMOJI[rightFruit] || '❓';
 
+            // 根据选择决定左右显示的内容
+            // 选择的 -> 右边（高亮显示）
+            // 没选择的 -> 左边（变暗显示）
             const selectedFruit = chosenSide === 'left' ? leftFruit : rightFruit;
             const selectedCount = chosenSide === 'left' ? leftCount : rightCount;
             const selectedEmoji = chosenSide === 'left' ? leftEmoji : rightEmoji;
+            const unselectedFruit = chosenSide === 'left' ? rightFruit : leftFruit;
+            const unselectedCount = chosenSide === 'left' ? rightCount : leftCount;
+            const unselectedEmoji = chosenSide === 'left' ? rightEmoji : leftEmoji;
 
             return `
-                <div class="flex items-center gap-3 bg-gray-700/50 rounded-lg p-3 mb-2 border-l-4 border-blue-500">
-                    <div class="flex-shrink-0">
-                        <div class="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-sm">
+                <div class="bg-gray-700/50 rounded-lg p-3 mb-2 border-l-4 border-blue-500">
+                    <!-- 玩家信息 -->
+                    <div class="flex items-center gap-2 mb-2">
+                        <div class="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-xs">
                             ${playerName.charAt(0)}
                         </div>
+                        <span class="font-bold text-white text-sm">${playerName}</span>
+                        <span class="text-gray-500 text-xs ml-auto">${timestamp}</span>
                     </div>
-                    <div class="flex-1 min-w-0">
-                        <div class="flex items-center gap-2 mb-1">
-                            <span class="font-bold text-white truncate">${playerName}</span>
-                            <span class="text-gray-400 text-xs">选择了</span>
+                    <!-- 翻转卡显示：没选择的在左（变暗），选择的在右（高亮） -->
+                    <div class="flex items-center justify-center gap-2">
+                        <!-- 左边：没选择的（变暗） -->
+                        <div class="flex-1 flex flex-col items-center p-2 rounded-lg opacity-40 grayscale transition-all"
+                             style="background: ${getFruitBg(unselectedFruit)}">
+                            <div class="flex items-center gap-1">
+                                <span class="text-lg">${unselectedEmoji}</span>
+                                <span class="font-black text-gray-800 text-sm">×${unselectedCount}</span>
+                            </div>
+                            <span class="text-xs text-gray-600">${FRUIT_NAME[unselectedFruit] || ''}</span>
+                            <div class="mt-1"><span class="text-red-400 text-xl font-bold">✗</span></div>
                         </div>
-                        <div class="flex items-center gap-2">
-                            <div class="text-2xl">${selectedEmoji}</div>
-                            <div class="font-black text-white">${FRUIT_NAME[selectedFruit]}</div>
-                            <div class="text-gray-400">×</div>
-                            <div class="font-bold text-yellow-400">${selectedCount}</div>
+                        <!-- 分隔 -->
+                        <div class="text-gray-500 font-bold">|</div>
+                        <!-- 右边：选择的（高亮） -->
+                        <div class="flex-1 flex flex-col items-center p-2 rounded-lg opacity-100 ring-2 ring-green-500 transition-all"
+                             style="background: ${getFruitBg(selectedFruit)}">
+                            <div class="flex items-center gap-1">
+                                <span class="text-lg">${selectedEmoji}</span>
+                                <span class="font-black text-gray-800 text-sm">×${selectedCount}</span>
+                            </div>
+                            <span class="text-xs text-gray-600">${FRUIT_NAME[selectedFruit] || ''}</span>
+                            <div class="mt-1"><span class="text-green-400 text-xl font-bold">✓</span></div>
                         </div>
-                    </div>
-                    <div class="flex-shrink-0 text-right">
-                        <div class="text-xs text-gray-500">${timestamp}</div>
-                        <div class="text-xs text-gray-400 capitalize">${chosenSide}面</div>
                     </div>
                 </div>`;
         }
@@ -1051,6 +1090,7 @@
                         break;
 
                     case 'state_update':
+                        console.log('[state_update] 收到游戏状态更新:', content);
                         updateGameState(content);
                         break;
 
@@ -1093,18 +1133,19 @@
             // 更新房间状态文字
             const stateMap = { waiting: '等待中', playing: '游戏中', ready: '准备就绪' };
             document.getElementById('roomState').textContent = stateMap[state] || state || '等待中';
-
+            
             // 更新玩家列表
             roomPlayers = players;
             renderPlayerReadyList(players);
-
+            
             // 同步自己的准备状态
             const myInfo = players.find(p => (p.player_id || p.PlayerID) === playerID);
             if (myInfo) {
                 isReady = myInfo.ready || myInfo.Ready || false;
+                console.log('[room_state_changed] 同步准备状态:', { playerID, isReady, myInfo });
                 updateReadyButton();
             }
-
+            
             // 如果真人玩家已准备，自动帮机器人准备
             if (isReady && state === 'waiting' && bots.length > 0) {
                 bots.forEach(bot => {
@@ -1115,15 +1156,22 @@
                     }
                 });
             }
-
+            
             // 状态切换
             if (state === 'playing') {
+                // 游戏进行中，显示游戏界面
                 document.getElementById('readyPanel').classList.add('hidden');
                 document.getElementById('gameArea').classList.remove('hidden');
+                
+                // 渲染玩家愤怒分列表（显示断线信息）
+                console.log('[room_state_changed] playing state, rendering player scores:', players);
+                const currentPlayer = gameState?.current || '';
+                renderPlayerScoreList(players, currentPlayer);
             } else if (state === 'waiting') {
+                // 等待中，显示准备界面
                 document.getElementById('readyPanel').classList.remove('hidden');
                 document.getElementById('gameArea').classList.add('hidden');
-                // 重置游戏UI
+                // 重置游戏 UI
                 settlementShown = false;
             }
 
@@ -1135,15 +1183,38 @@
         function renderPlayerReadyList(players) {
             const el = document.getElementById('playerReadyList');
             el.innerHTML = '';
-            players.forEach(p => {
+            
+            // 在准备阶段，过滤掉离线玩家
+            const filteredPlayers = players.filter(p => {
+                const isOffline = p.is_offline || p.IsOffline || false;
+                return !isOffline; // 只显示在线玩家
+            });
+            
+            if (filteredPlayers.length === 0) {
+                el.innerHTML = `
+                    <div class="text-gray-500 text-center text-sm py-4">
+                        暂无玩家
+                    </div>`;
+                return;
+            }
+            
+            filteredPlayers.forEach(p => {
                 const pid = p.player_id || p.PlayerID;
                 const ready = p.ready || p.Ready;
                 const isMe = pid === playerID;
+                
+                // 准备阶段不显示离线状态（因为已过滤）
+                const statusIcon = ready ? '✅' : '⭕';
+                const statusText = ready ? '已准备' : '未准备';
+                const borderColor = ready ? 'border-green-600/40' : 'border-gray-600/30';
+                const textColor = ready ? 'text-green-400' : 'text-gray-400';
+                const statusColor = ready ? 'text-green-400' : 'text-gray-500';
+                
                 el.innerHTML += `
-                    <div class="flex items-center gap-2 bg-gray-700/50 px-3 py-2 rounded-lg border ${ready ? 'border-green-600/40' : 'border-gray-600/30'}">
-                        <span class="${ready ? 'text-green-400' : 'text-gray-400'} text-lg">${ready ? '✅' : '⭕'}</span>
+                    <div class="flex items-center gap-2 bg-gray-700/50 px-3 py-2 rounded-lg border ${borderColor}">
+                        <span class="${textColor} text-lg">${statusIcon}</span>
                         <span class="${isMe ? 'text-yellow-300 font-bold' : 'text-gray-200'}">${pid}${isMe ? ' (我)' : ''}</span>
-                        <span class="text-xs ${ready ? 'text-green-400' : 'text-gray-500'}">${ready ? '已准备' : '未准备'}</span>
+                        <span class="text-xs ${statusColor} ml-auto">${statusText}</span>
                     </div>`;
             });
         }
@@ -1257,10 +1328,26 @@
                 document.getElementById('drawnCardPreview').classList.remove('hidden');
                 document.getElementById('currentDrawnCard').innerHTML = buildDrawnCardPreview(currentDrawnCard);
                 console.log('[DEBUG] Updated drawn card preview');
+
+                // 收到牌后，隐藏翻牌按钮和摇铃按钮，显示选择按钮
+                document.getElementById('flipCardArea').classList.add('hidden');
+                document.getElementById('ringBellArea').classList.add('hidden');
+                document.getElementById('orderButtons').classList.remove('hidden');
             } else {
                 console.log('[DEBUG] No current_drawn_card found');
                 currentDrawnCard = null;
                 document.getElementById('drawnCardPreview').classList.add('hidden');
+
+                // 没有翻开的牌时，重置翻牌按钮状态，显示翻牌按钮和摇铃按钮
+                const btnFlip = document.getElementById('btnFlip');
+                if (btnFlip) {
+                    btnFlip.textContent = '🎴 翻牌';
+                    btnFlip.disabled = false;
+                }
+                // 显示翻牌按钮和摇铃按钮，隐藏选择按钮
+                document.getElementById('flipCardArea').classList.remove('hidden');
+                document.getElementById('ringBellArea').classList.remove('hidden');
+                document.getElementById('orderButtons').classList.add('hidden');
             }
 
             // 处理历史记录
@@ -1284,8 +1371,8 @@
                 return;
             }
 
-            // 按时间倒序显示（最新的在上面）
-            const sortedHistory = [...playedCardsHistory].reverse();
+            // 按时间正序显示（最新的在最下面，像日志一样）
+            const sortedHistory = [...playedCardsHistory];
 
             let html = '';
             sortedHistory.forEach(record => {
@@ -1375,7 +1462,13 @@
 
         function renderPlayerScoreList(players, currentPlayer) {
             const el = document.getElementById('playerScoreList');
-            if (!players || players.length === 0) { el.innerHTML = ''; return; }
+            if (!players || players.length === 0) { 
+                console.log('[renderPlayerScoreList] No players to render');
+                el.innerHTML = ''; 
+                return; 
+            }
+
+            console.log('[renderPlayerScoreList] Players:', players);
 
             // 按愤怒分升序排列
             const sorted = [...players].sort((a, b) => {
@@ -1390,17 +1483,24 @@
                 const tokens = p.anger_tokens || p.AngerTokens || [];
                 const isMe = pid === playerID;
                 const isCurrent = pid === currentPlayer;
+                const isOffline = p.is_offline ?? p.IsOffline ?? false;
+                
+                console.log(`[renderPlayerScoreList] Player ${pid}: isOffline=${isOffline}, offline_field=${p.is_offline}/${p.IsOffline}`);
+                
                 const rankEmoji = idx === 0 ? '👑' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : '  ';
 
                 return `
-                    <div class="flex items-center gap-2 px-3 py-2 rounded-lg ${isMe ? 'bg-indigo-900/40 border border-indigo-600/30' : 'bg-gray-700/40'} ${isCurrent ? 'border border-green-600/50' : ''}">
+                    <div class="flex items-center gap-2 px-3 py-2 rounded-lg ${isMe ? 'bg-indigo-900/40 border border-indigo-600/30' : 'bg-gray-700/40'} ${isCurrent ? 'border border-green-600/50' : ''} ${isOffline ? 'opacity-50' : ''}">
                         <span class="text-sm w-6">${rankEmoji}</span>
-                        <span class="flex-1 text-sm font-medium truncate ${isMe ? 'text-indigo-300' : 'text-gray-200'}">${pid}${isMe ? ' 👤' : ''}</span>
-                        ${isCurrent ? '<span class="text-green-400 text-xs font-bold animate-pulse">行动中</span>' : ''}
+                        <span class="flex-1 text-sm font-medium truncate ${isMe ? 'text-indigo-300' : 'text-gray-200'} ${isOffline ? 'line-through text-red-300' : ''}">${pid}${isMe ? ' 👤' : ''}</span>
+                        ${isOffline ? '<span class="text-red-400 text-xs font-bold">🔌 断线</span>' : ''}
+                        ${isCurrent && !isOffline ? '<span class="text-green-400 text-xs font-bold animate-pulse">行动中</span>' : ''}
                         <span class="font-black ${score >= 5 ? 'text-red-400' : score >= 3 ? 'text-yellow-400' : 'text-gray-300'}">${score}</span>
                         <span class="text-gray-500 text-xs">分</span>
                     </div>`;
             }).join('');
+            
+            console.log('[renderPlayerScoreList] Rendered HTML:', el.innerHTML.substring(0, 200));
         }
 
         // ─────────────────────────────────────────────
@@ -1655,6 +1755,29 @@
         // 游戏行动
         // ─────────────────────────────────────────────
 
+        // 翻牌：第一步，从牌堆翻一张牌
+        function flipCard() {
+            if (!ws || !currentRoomID || isProcessingAction) return;
+
+            isProcessingAction = true;
+            ws.send(JSON.stringify({
+                type: 'game.action',
+                room_id: currentRoomID,
+                data: { action: 'take_order' }
+            }));
+
+            log('🎴 翻牌中...', 'text-purple-400');
+
+            // 隐藏翻牌按钮，显示"翻牌中..."提示
+            document.getElementById('btnFlip').textContent = '🎴 翻牌中...';
+            document.getElementById('btnFlip').disabled = true;
+
+            // 注意：选择按钮会在收到 current_drawn_card 后显示
+            // 见 handleDrawnCardAndHistory 函数
+
+            setTimeout(() => { isProcessingAction = false; }, 500);
+        }
+
         // 预览选择（不真正执行）
         let pendingChoice = null;
 
@@ -1718,11 +1841,23 @@
 
             // 重置状态
             pendingChoice = null;
+            currentDrawnCard = null;
             document.getElementById('confirmBtn').classList.add('hidden');
+            document.getElementById('drawnCardPreview').classList.add('hidden');
+
+            // 重置按钮状态：显示翻牌按钮，隐藏选择按钮
+            document.getElementById('flipCardArea').classList.remove('hidden');
+            document.getElementById('orderButtons').classList.add('hidden');
+
+            // 重置按钮样式
+            const btnLeft = document.getElementById('btnLeft');
+            const btnRight = document.getElementById('btnRight');
+            btnLeft.className = 'action-btn flex-1 min-w-32 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 py-3 px-4 rounded-xl font-bold text-lg transition-all duration-300';
+            btnRight.className = 'action-btn flex-1 min-w-32 bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 py-3 px-4 rounded-xl font-bold text-lg transition-all duration-300';
 
             // 短暂禁用按钮防抖
-            document.getElementById('btnLeft').disabled = true;
-            document.getElementById('btnRight').disabled = true;
+            btnLeft.disabled = true;
+            btnRight.disabled = true;
             setTimeout(() => {
                 isProcessingAction = false;
                 if (document.getElementById('btnLeft')) {

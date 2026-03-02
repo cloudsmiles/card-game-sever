@@ -50,7 +50,7 @@ func WSHandler(w http.ResponseWriter, r *http.Request) {
 	// 检查是否是断线重连
 	if existingRoomID, exists := room.GlobalPlayerTracker.GetPlayerRoom(playerID); exists {
 		roomObj, err := room.GlobalManager.GetRoom(existingRoomID)
-		if err == nil && roomObj.State == types.RoomPaused {
+		if err == nil && roomObj.State == types.RoomPlaying {
 			// 尝试重连
 			if reconnectErr := roomObj.ReconnectPlayer(playerID, send); reconnectErr == nil {
 				currentRoomID = existingRoomID
@@ -66,8 +66,8 @@ func WSHandler(w http.ResponseWriter, r *http.Request) {
 		if playerID != "" && currentRoomID != "" {
 			roomObj, err := room.GlobalManager.GetRoom(currentRoomID)
 			if err == nil {
-				// 游戏进行中或暂停时标记为断线，其他状态直接移除
-				if roomObj.State == types.RoomPlaying || roomObj.State == types.RoomPaused {
+				// 游戏进行中标记为断线，其他状态直接移除
+				if roomObj.State == types.RoomPlaying {
 					roomObj.MarkPlayerOffline(playerID)
 					log.Printf("玩家 [%s] 游戏中断线，已标记 [房间：%s]", playerID, currentRoomID)
 				} else {

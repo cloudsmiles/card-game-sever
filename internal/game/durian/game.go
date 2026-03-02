@@ -30,11 +30,11 @@ type DurianGame struct {
 
 // PlayedCardRecord 已打出的牌记录
 type PlayedCardRecord struct {
-	PlayerName  string      `json:"player_name"`
-	Card        Card        `json:"card"`
-	ChosenSide  string      `json:"chosen_side"`
-	Timestamp   string      `json:"timestamp"`
-	RoundNumber int         `json:"round_number"`
+	PlayerName  string `json:"player_name"`
+	Card        Card   `json:"card"`
+	ChosenSide  string `json:"chosen_side"`
+	Timestamp   string `json:"timestamp"`
+	RoundNumber int    `json:"round_number"`
 }
 
 // 确保实现接口
@@ -189,12 +189,11 @@ func (g *DurianGame) startNewRound(firstPlayerIdx int) error {
 		FruitStrawberry: 0,
 	}
 
-	// 将上一轮的牌架卡放入废牌堆
-	for _, card := range g.holderCards {
-		if card != nil {
-			g.deck.Discard(card)
-		}
-	}
+	// 清空历史记录（新一轮开始）
+	g.playedCardsHistory = make([]PlayedCardRecord, 0)
+
+	// 重新洗牌（上一轮的牌架卡直接重新混入牌堆）
+	g.deck.ReshuffleAll()
 
 	// 重新为每位玩家发一张牌架卡
 	g.holderCards = make(map[string]Card, len(g.players))
@@ -211,28 +210,47 @@ func (g *DurianGame) startNewRound(firstPlayerIdx int) error {
 }
 
 // processTakeOrder 处理"接新订单"行动
-// 自动翻开一张牌，根据 chosen_side 选择水果加入订单区
+// 先翻牌显示给玩家，玩家选择左右面后才真正处理
 func (g *DurianGame) processTakeOrder(playerID string, act interfaces.Action) (bool, error) {
 	if g.phase != "playing" {
 		return false, fmt.Errorf("当前阶段 %s 不能接订单", g.phase)
 	}
 
+	// 检查是否已有翻开的牌等待处理
+	if g.flippedCard == nil {
+		// 第一步：从牌堆翻一张牌，等待玩家选择
+		card, ok := g.deck.Draw()
+		if !ok {
+			return false, fmt.Errorf("牌堆已空，无法翻牌")
+		}
+		g.flippedCard = card
+
+		// 清空上一轮的结算结果（新一轮第一个行动时）
+		g.lastSettlement = nil
+
+		// 如果是猩猩牌，直接触发强制结算（没有选择）
+		if _, isGorilla := card.(*GorillaCard); isGorilla {
+			g.deck.Discard(card)
+			g.flippedCard = nil
+			// 强制结算，摇铃者视为当前玩家
+			return g.processRingBell(playerID)
+		}
+
+		// 翻牌成功，等待玩家选择，不结束回合
+		return false, nil
+	}
+
+	// 第二步：处理已翻开的牌（玩家已选择左右面）
 	// 解析 chosen_side
 	chosenSide, err := parseChosenSide(act.Data)
 	if err != nil {
 		return false, err
 	}
 
-	// 从牌堆翻一张牌
-	card, ok := g.deck.Draw()
-	if !ok {
-		return false, fmt.Errorf("牌堆已空，无法翻牌")
-	}
-	g.flippedCard = card
+	card := g.flippedCard
 
-	// 处理翻出的牌
-	switch c := card.(type) {
-	case *FruitCard:
+	// 处理翻出的水果牌
+	if c, ok := card.(*FruitCard); ok {
 		// 根据选择的面添加订单
 		switch chosenSide {
 		case "left":
@@ -242,18 +260,11 @@ func (g *DurianGame) processTakeOrder(playerID string, act interfaces.Action) (b
 		}
 		// 翻开的牌废弃（不放入牌架）
 		g.deck.Discard(card)
-
-	case *GorillaCard:
-		// 翻出猩猩牌：没有水果面可选，强制结算（参考PRD 9.2节）
-		// 将此牌废弃并触发强制摇铃
-		g.deck.Discard(card)
-		// 强制结算，摇铃者视为当前玩家
-		return g.processRingBell(playerID)
 	}
 
 	// 记录本次接订单的玩家
 	g.lastOrderPlayerIdx = g.currentTurn
-		
+
 	// 记录到历史
 	record := PlayedCardRecord{
 		PlayerName:  playerID,
@@ -263,7 +274,10 @@ func (g *DurianGame) processTakeOrder(playerID string, act interfaces.Action) (b
 		RoundNumber: g.roundNumber,
 	}
 	g.playedCardsHistory = append(g.playedCardsHistory, record)
-		
+
+	// 清空翻开的牌
+	g.flippedCard = nil
+
 	// 返回 true，由 room.go 调用 AdvanceTurn() 切换到下一位玩家
 	return true, nil
 }
@@ -317,9 +331,10 @@ func (g *DurianGame) processRingBell(playerID string) (bool, error) {
 	nextFirstIdx := (punishedIdx + 1) % len(g.players)
 
 	if err := g.startNewRound(nextFirstIdx); err != nil {
-		return false, fmt.Errorf("开始新一轮失败: %w", err)
+		return false, fmt.Errorf("开始新一轮失败：%w", err)
 	}
 
+	// 保留 lastSettlement 直到下一轮第一个玩家行动时再清空
 	// ring_bell 后内部已完成轮次处理，返回 false 告知 room.go 不要再调用 AdvanceTurn
 	return false, nil
 }
@@ -541,7 +556,7 @@ func (g *DurianGame) getFlippedCardForState() interface{} {
 	if g.phase != "playing" || g.flippedCard == nil {
 		return nil
 	}
-	
+
 	// 将 Card 转换为可序列化的 map
 	return cardToMap(g.flippedCard)
 }

@@ -2,9 +2,9 @@ package durian
 
 // SettlementResult 结算结果（保存本轮结算详情）
 type SettlementResult struct {
-	BellRinger        string             `json:"bell_ringer"`          // 摇铃玩家
-	AllHolderCards    map[string]Card    `json:"all_holder_cards"`     // 所有玩家牌架卡（公开）
-	GorillaEffects    []GorillaEffect    `json:"gorilla_effects"`      // 猩猩牌特效列表
+	BellRinger         string            `json:"bell_ringer"`          // 摇铃玩家
+	AllHolderCards     map[string]Card   `json:"all_holder_cards"`     // 所有玩家牌架卡（公开）
+	GorillaEffects     []GorillaEffect   `json:"gorilla_effects"`      // 猩猩牌特效列表
 	OrdersBeforeCancel map[FruitType]int `json:"orders_before_cancel"` // 应用猩猩特效前的订单
 	OrdersAfterCancel  map[FruitType]int `json:"orders_after_cancel"`  // 应用猩猩特效后的订单
 	Inventory          map[FruitType]int `json:"inventory"`            // 库存总量
@@ -23,7 +23,7 @@ type GorillaEffect struct {
 }
 
 // CalculateInventory 计算所有玩家牌架卡的水果库存总量
-// 猩猩牌不贡献库存
+// 考虑猩猩牌效果：米奇去除数量为3的水果库存，南茜让香蕉库存无限
 func CalculateInventory(holderCards map[string]Card) map[FruitType]int {
 	inventory := map[FruitType]int{
 		FruitDurian:     0,
@@ -31,44 +31,110 @@ func CalculateInventory(holderCards map[string]Card) map[FruitType]int {
 		FruitGrape:      0,
 		FruitStrawberry: 0,
 	}
+
+	// 检查是否有南茜（香蕉无限）
+	hasBananaInfinite := false
+	// 检查是否有米奇（需要去除数量为3的水果）
+	hasMickey := false
+	for _, card := range holderCards {
+		if g, ok := card.(*GorillaCard); ok {
+			if g.Ability == AbilityCancelBanana {
+				hasBananaInfinite = true
+			}
+			if g.Ability == AbilityCancelCount3 {
+				hasMickey = true
+			}
+		}
+	}
+
+	// 收集需要去除的水果类型（数量为3的）
+	excludedFruits := make(map[FruitType]bool)
+	if hasMickey {
+		for _, card := range holderCards {
+			if fc, ok := card.(*FruitCard); ok {
+				if fc.LeftCount == 3 {
+					excludedFruits[fc.LeftFruit] = true
+				}
+				if fc.RightCount == 3 {
+					excludedFruits[fc.RightFruit] = true
+				}
+			}
+		}
+	}
+
+	// 计算库存
 	for _, card := range holderCards {
 		switch c := card.(type) {
 		case *FruitCard:
-			inventory[c.LeftFruit] += c.LeftCount
-			inventory[c.RightFruit] += c.RightCount
+			// 左面：如果不是被排除的水果，则计入库存
+			if !excludedFruits[c.LeftFruit] {
+				inventory[c.LeftFruit] += c.LeftCount
+			}
+			// 右面：如果不是被排除的水果，则计入库存
+			if !excludedFruits[c.RightFruit] {
+				inventory[c.RightFruit] += c.RightCount
+			}
 		case *GorillaCard:
 			// 猩猩牌不贡献库存
 		}
 	}
+
+	// 南茜效果：香蕉库存设为极大值（无限）
+	if hasBananaInfinite {
+		inventory[FruitBanana] = 9999
+	}
+
 	return inventory
 }
 
-// ApplyGorillaEffects 应用猩猩兄妹牌特效，返回调整后的订单区
-// 持有猩猩牌的玩家会取消对应水果的所有订单
+// ApplyGorillaEffects 应用猩猩兄妹牌特效（记录效果信息）
+// 实际效果已在 CalculateInventory 中处理
 func ApplyGorillaEffects(orders map[FruitType]int, holderCards map[string]Card) (map[FruitType]int, []GorillaEffect) {
 	result := copyOrders(orders)
 	effects := make([]GorillaEffect, 0)
 
 	for playerID, card := range holderCards {
 		if g, ok := card.(*GorillaCard); ok {
-			var cancelledFruit FruitType
 			switch g.Ability {
-			case AbilityCancelDurian:
-				cancelledFruit = FruitDurian
 			case AbilityCancelBanana:
-				cancelledFruit = FruitBanana
-			case AbilityCancelGrape:
-				cancelledFruit = FruitGrape
-			default:
-				continue
+				// 南茜：香蕉库存无限
+				effects = append(effects, GorillaEffect{
+					PlayerID:        playerID,
+					Ability:         g.Ability,
+					CancelledOrders: 0, // 不是取消订单，而是库存无限
+				})
+
+			case AbilityCancelCount3:
+				// 米奇：去除数量为3的水果库存
+				// 计算被去除的库存数量
+				excludedFruits := make(map[FruitType]bool)
+				excludedCount := 0
+				for _, c := range holderCards {
+					if fc, ok := c.(*FruitCard); ok {
+						if fc.LeftCount == 3 {
+							excludedFruits[fc.LeftFruit] = true
+							excludedCount += fc.LeftCount
+						}
+						if fc.RightCount == 3 {
+							excludedFruits[fc.RightFruit] = true
+							excludedCount += fc.RightCount
+						}
+					}
+				}
+				effects = append(effects, GorillaEffect{
+					PlayerID:        playerID,
+					Ability:         g.Ability,
+					CancelledOrders: excludedCount,
+				})
+
+			case AbilityDoNothing:
+				// 墨菲：无事发生
+				effects = append(effects, GorillaEffect{
+					PlayerID:        playerID,
+					Ability:         g.Ability,
+					CancelledOrders: 0,
+				})
 			}
-			cancelledAmount := result[cancelledFruit]
-			result[cancelledFruit] = 0
-			effects = append(effects, GorillaEffect{
-				PlayerID:        playerID,
-				Ability:         g.Ability,
-				CancelledOrders: cancelledAmount,
-			})
 		}
 	}
 	return result, effects

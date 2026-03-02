@@ -921,7 +921,7 @@
                 document.getElementById('createBtn').disabled = false;
             }
 
-            const stateText = { waiting: '等待中', playing: '游戏中', paused: '已暂停' }[state] || state;
+            const stateText = { waiting: '等待中', playing: '游戏中' }[state] || state;
             document.getElementById('roomState').textContent = stateText;
 
             roomPlayers = players;
