@@ -49,6 +49,9 @@ type ChatData struct {
 	Content string `json:"content"`
 }
 
+// 动作名称枚举（仅用于游戏动作）
+type GameActionType string
+
 // GameActionData 统一游戏动作数据结构
 type GameActionData struct {
 	Action GameActionType `json:"action"`
