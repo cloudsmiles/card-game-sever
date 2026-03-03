@@ -26,6 +26,10 @@ type DurianGame struct {
 	winner             string                  // 获胜者
 	lastSettlement     *SettlementResult       // 最近一次结算结果（用于状态广播）
 	playedCardsHistory []PlayedCardRecord      // 已打出的牌历史记录
+
+	// 等待确认继续相关
+	waitingForContinue    map[string]bool // 等待哪些玩家确认继续
+	pendingNextRoundStart int             // 待开始新一轮的首个玩家索引
 }
 
 // PlayedCardRecord 已打出的牌记录
@@ -120,13 +124,19 @@ func (g *DurianGame) ProcessAction(playerID string, action interface{}) (bool, e
 		return false, fmt.Errorf("游戏已结束")
 	}
 
-	if g.CurrentTurn() != playerID {
-		return false, fmt.Errorf("不是你的回合，当前轮到 %s", g.CurrentTurn())
-	}
-
 	act, ok := action.(interfaces.Action)
 	if !ok {
 		return false, fmt.Errorf("无效的 action 类型，期望 interfaces.Action")
+	}
+
+	// 处理确认继续（在等待确认阶段，任何玩家都可以操作）
+	if act.Type == "continue" {
+		return g.processContinue(playerID)
+	}
+
+	// 其他操作需要是当前回合玩家
+	if g.CurrentTurn() != playerID {
+		return false, fmt.Errorf("不是你的回合，当前轮到 %s", g.CurrentTurn())
 	}
 
 	switch act.Type {
@@ -135,7 +145,7 @@ func (g *DurianGame) ProcessAction(playerID string, action interface{}) (bool, e
 	case "ring_bell":
 		return g.processRingBell(playerID)
 	default:
-		return false, fmt.Errorf("未知的行动类型: %s，支持 take_order 或 ring_bell", act.Type)
+		return false, fmt.Errorf("未知的行动类型: %s，支持 take_order、ring_bell 或 continue", act.Type)
 	}
 }
 
@@ -282,6 +292,42 @@ func (g *DurianGame) processTakeOrder(playerID string, act interfaces.Action) (b
 	return true, nil
 }
 
+// processContinue 处理玩家确认继续（结算后等待所有人确认）
+func (g *DurianGame) processContinue(playerID string) (bool, error) {
+	if g.phase != "waiting_continue" {
+		return false, fmt.Errorf("当前阶段 %s 不需要确认继续", g.phase)
+	}
+
+	// 检查玩家是否在等待列表中
+	if !g.waitingForContinue[playerID] {
+		return false, nil // 已经确认过了，忽略
+	}
+
+	// 标记该玩家已确认
+	g.waitingForContinue[playerID] = false
+
+	// 检查是否所有玩家都已确认
+	allConfirmed := true
+	for _, waiting := range g.waitingForContinue {
+		if waiting {
+			allConfirmed = false
+			break
+		}
+	}
+
+	// 所有人都确认了，开始新一轮
+	if allConfirmed {
+		if err := g.startNewRound(g.pendingNextRoundStart); err != nil {
+			return false, fmt.Errorf("开始新一轮失败：%w", err)
+		}
+		// 清空等待状态
+		g.waitingForContinue = nil
+		g.pendingNextRoundStart = 0
+	}
+
+	return false, nil
+}
+
 // processRingBell 处理"摇铃"行动，触发结算
 func (g *DurianGame) processRingBell(playerID string) (bool, error) {
 	if g.phase != "playing" {
@@ -325,16 +371,20 @@ func (g *DurianGame) processRingBell(playerID string) (bool, error) {
 		return false, nil
 	}
 
-	// 游戏未结束，开始新一轮
-	// 从受罚玩家的下一位开始
+	// 游戏未结束，进入等待确认状态
+	// 从受罚玩家的下一位开始（记录待开始的位置）
 	punishedIdx := indexOfPlayer(g.players, result.PunishedPlayer)
-	nextFirstIdx := (punishedIdx + 1) % len(g.players)
+	g.pendingNextRoundStart = (punishedIdx + 1) % len(g.players)
 
-	if err := g.startNewRound(nextFirstIdx); err != nil {
-		return false, fmt.Errorf("开始新一轮失败：%w", err)
+	// 初始化等待确认列表（所有玩家都需要确认）
+	g.waitingForContinue = make(map[string]bool)
+	for _, pid := range g.players {
+		g.waitingForContinue[pid] = true
 	}
 
-	// 保留 lastSettlement 直到下一轮第一个玩家行动时再清空
+	// 进入等待确认阶段
+	g.phase = "waiting_continue"
+
 	// ring_bell 后内部已完成轮次处理，返回 false 告知 room.go 不要再调用 AdvanceTurn
 	return false, nil
 }
@@ -375,7 +425,7 @@ func (g *DurianGame) buildPublicState() map[string]interface{} {
 	}
 
 	currentPlayer := ""
-	if !g.gameOver {
+	if !g.gameOver && g.phase != "waiting_continue" {
 		currentPlayer = g.CurrentTurn()
 	}
 
@@ -398,6 +448,17 @@ func (g *DurianGame) buildPublicState() map[string]interface{} {
 	// 附加最近一次结算信息（结算/轮次结束时有意义）
 	if g.lastSettlement != nil {
 		state["last_settlement"] = settlementToMap(g.lastSettlement)
+	}
+
+	// 附加等待确认继续的玩家列表
+	if g.phase == "waiting_continue" && g.waitingForContinue != nil {
+		waitingList := make([]string, 0)
+		for pid, waiting := range g.waitingForContinue {
+			if waiting {
+				waitingList = append(waitingList, pid)
+			}
+		}
+		state["waiting_for_continue"] = waitingList
 	}
 
 	return state

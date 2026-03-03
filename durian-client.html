@@ -491,7 +491,19 @@
                 <button onclick="closeSettlement()" class="text-gray-400 hover:text-white text-2xl font-bold">✕</button>
             </div>
             <div id="settlementContent"></div>
-            <button onclick="closeSettlement()"
+            <!-- 等待确认继续区域 -->
+            <div id="continueArea" class="hidden mt-6">
+                <div class="bg-yellow-900/30 border border-yellow-600/40 rounded-xl p-4 mb-4">
+                    <div class="text-yellow-300 font-bold mb-2">⏳ 等待所有玩家确认</div>
+                    <div id="waitingPlayersList" class="text-sm text-gray-300"></div>
+                </div>
+                <button id="confirmContinueBtn" onclick="confirmContinue()"
+                    class="action-btn w-full bg-green-600 hover:bg-green-500 py-3 rounded-xl font-bold text-lg">
+                    ✅ 我准备好了，继续游戏
+                </button>
+            </div>
+            <!-- 旧版关闭按钮（非等待阶段显示） -->
+            <button id="closeSettlementBtn" onclick="closeSettlement()"
                 class="action-btn w-full mt-6 bg-blue-600 hover:bg-blue-500 py-3 rounded-xl font-bold text-lg">
                 知道了，继续游戏
             </button>
@@ -553,6 +565,7 @@
             playing: '游戏进行',
             settlement: '结算中',
             round_end: '轮次结束',
+            waiting_continue: '等待确认',
             game_over: '游戏结束'
         };
 
@@ -570,6 +583,7 @@
         let settlementShown = false; // 防止重复显示结算
         let currentDrawnCard = null; // 当前抽到的牌
         let playedCardsHistory = []; // 已打出的牌历史
+        let hasConfirmedContinue = false; // 本轮是否已点击确认继续
 
         // ─────────────────────────────────────────────
         // 机器人管理
@@ -647,47 +661,47 @@
             // 机器人回合逻辑
             playTurn() {
                 console.log(`[Bot ${this.name}] playTurn, gameState:`, this.gameState);
-            
+
                 if (!this.gameState) {
                     console.log(`[Bot ${this.name}] 没有 gameState`);
                     return;
                 }
-            
+
                 const currentPlayer = this.gameState.current;
                 const isMyTurn = currentPlayer === this.playerID;
                 const phase = this.gameState.phase;
-            
+
                 console.log(`[Bot ${this.name}] current:`, currentPlayer, 'myID:', this.playerID, 'isMyTurn:', isMyTurn, 'phase:', phase);
-            
+
                 // 防止重复行动：如果已经在行动中，忽略这次调用
                 if (this.isActing) {
                     console.log(`[Bot ${this.name}] 正在行动中，忽略重复调用`);
                     return;
                 }
-            
+
                 if (!isMyTurn || phase !== 'playing') {
                     console.log(`[Bot ${this.name}] 不是我的回合或非出牌阶段`);
                     return;
                 }
-            
+
                 // 标记为正在行动
                 this.isActing = true;
-            
+
                 setTimeout(() => {
                     // 简单策略：
                     // - 85% 概率接新订单（随机选左/右）
                     // - 15% 概率摇铃（当订单数量较大时）
                     const orders = this.gameState.orders || {};
                     const totalOrders = Object.values(orders).reduce((a, b) => a + b, 0);
-            
+
                     // 根据订单数量调整摇铃概率
                     let ringBellChance = 0.05;  // 基础 5%
                     if (totalOrders > 8) ringBellChance = 0.15;
                     if (totalOrders > 12) ringBellChance = 0.25;
                     if (totalOrders > 16) ringBellChance = 0.40;
-            
+
                     const shouldRingBell = Math.random() < ringBellChance && totalOrders > 3;
-            
+
                     if (shouldRingBell) {
                         // 摇铃
                         this.send({
@@ -709,7 +723,7 @@
                         });
                         console.log(`[Bot ${this.name}] 接订单：${chosenSide}`);
                     }
-                                
+
                     // 行动完成后重置标志
                     this.isActing = false;
                 }, 1500 + Math.random() * 2000);  // 1.5~3.5 秒延迟，模拟思考
@@ -730,12 +744,44 @@
                             console.log(`[Bot ${this.name}] 游戏开始`);
                             // 检查是否轮到我
                             this.playTurn();
+
+                            // 检查是否在等待确认阶段（游戏开始时可能直接进入等待状态）
+                            if (content && content.phase === 'waiting_continue') {
+                                const waitingList = content.waiting_for_continue || content.WaitingForContinue || [];
+                                if (waitingList.includes(this.playerID)) {
+                                    // 机器人自动确认继续
+                                    setTimeout(() => {
+                                        this.send({
+                                            type: 'game.action',
+                                            room_id: this.roomID,
+                                            data: { action: 'continue' }
+                                        });
+                                        console.log(`[Bot ${this.name}] 自动确认继续`);
+                                    }, 1000 + Math.random() * 2000);
+                                }
+                            }
                             break;
 
                         case 'state_update':
                             this.gameState = content;
                             // 检查是否轮到我
                             this.playTurn();
+
+                            // 检查是否在等待确认阶段
+                            if (content && content.phase === 'waiting_continue') {
+                                const waitingList = content.waiting_for_continue || content.WaitingForContinue || [];
+                                if (waitingList.includes(this.playerID)) {
+                                    // 机器人自动确认继续
+                                    setTimeout(() => {
+                                        this.send({
+                                            type: 'game.action',
+                                            room_id: this.roomID,
+                                            data: { action: 'continue' }
+                                        });
+                                        console.log(`[Bot ${this.name}] 自动确认继续`);
+                                    }, 1000 + Math.random() * 2000);
+                                }
+                            }
                             break;
 
                         case 'game_over':
@@ -1047,6 +1093,7 @@
             currentDrawnCard = null;
             playedCardsHistory = [];
             pendingChoice = null;
+            hasConfirmedContinue = false;
 
             document.getElementById('connectPanel').classList.remove('hidden');
             document.getElementById('connectStatus').innerHTML = '❌ 连接已断开，请重新连接';
@@ -1133,11 +1180,11 @@
             // 更新房间状态文字
             const stateMap = { waiting: '等待中', playing: '游戏中', ready: '准备就绪' };
             document.getElementById('roomState').textContent = stateMap[state] || state || '等待中';
-            
+
             // 更新玩家列表
             roomPlayers = players;
             renderPlayerReadyList(players);
-            
+
             // 同步自己的准备状态
             const myInfo = players.find(p => (p.player_id || p.PlayerID) === playerID);
             if (myInfo) {
@@ -1145,7 +1192,7 @@
                 console.log('[room_state_changed] 同步准备状态:', { playerID, isReady, myInfo });
                 updateReadyButton();
             }
-            
+
             // 如果真人玩家已准备，自动帮机器人准备
             if (isReady && state === 'waiting' && bots.length > 0) {
                 bots.forEach(bot => {
@@ -1156,13 +1203,13 @@
                     }
                 });
             }
-            
+
             // 状态切换
             if (state === 'playing') {
                 // 游戏进行中，显示游戏界面
                 document.getElementById('readyPanel').classList.add('hidden');
                 document.getElementById('gameArea').classList.remove('hidden');
-                
+
                 // 渲染玩家愤怒分列表（显示断线信息）
                 console.log('[room_state_changed] playing state, rendering player scores:', players);
                 const currentPlayer = gameState?.current || '';
@@ -1183,13 +1230,13 @@
         function renderPlayerReadyList(players) {
             const el = document.getElementById('playerReadyList');
             el.innerHTML = '';
-            
+
             // 在准备阶段，过滤掉离线玩家
             const filteredPlayers = players.filter(p => {
                 const isOffline = p.is_offline || p.IsOffline || false;
                 return !isOffline; // 只显示在线玩家
             });
-            
+
             if (filteredPlayers.length === 0) {
                 el.innerHTML = `
                     <div class="text-gray-500 text-center text-sm py-4">
@@ -1197,19 +1244,19 @@
                     </div>`;
                 return;
             }
-            
+
             filteredPlayers.forEach(p => {
                 const pid = p.player_id || p.PlayerID;
                 const ready = p.ready || p.Ready;
                 const isMe = pid === playerID;
-                
+
                 // 准备阶段不显示离线状态（因为已过滤）
                 const statusIcon = ready ? '✅' : '⭕';
                 const statusText = ready ? '已准备' : '未准备';
                 const borderColor = ready ? 'border-green-600/40' : 'border-gray-600/30';
                 const textColor = ready ? 'text-green-400' : 'text-gray-400';
                 const statusColor = ready ? 'text-green-400' : 'text-gray-500';
-                
+
                 el.innerHTML += `
                     <div class="flex items-center gap-2 bg-gray-700/50 px-3 py-2 rounded-lg border ${borderColor}">
                         <span class="${textColor} text-lg">${statusIcon}</span>
@@ -1304,16 +1351,64 @@
             // 结算弹窗
             if (lastSettlement && !settlementShown) {
                 settlementShown = true;
+                hasConfirmedContinue = false;
                 setTimeout(() => showSettlement(lastSettlement), 300);
             }
             // 新一轮开始时重置结算标志
             if (phase === 'playing' && !lastSettlement) {
                 settlementShown = false;
+                hasConfirmedContinue = false;
+                // 确保弹窗关闭
+                if (document.getElementById('settlementModal').classList.contains('hidden') === false) {
+                    closeSettlement();
+                }
+            }
+
+            // 等待确认阶段：更新等待列表
+            if (phase === 'waiting_continue' && settlementShown) {
+                updateWaitingContinue(state);
             }
 
             // 游戏结束
             if (gameOver && winner) {
-                setTimeout(() => showGameOver(state), 500);
+                // 如果有最后的结算信息，先显示结算再显示游戏结束
+                if (lastSettlement) {
+                    // 延迟显示游戏结束，让用户先看到结算结果
+                    setTimeout(() => {
+                        showSettlement(lastSettlement);
+                        // 在结算弹窗中添加游戏结束信息
+                        setTimeout(() => {
+                            const settlementContent = document.getElementById('settlementContent');
+                            if (settlementContent) {
+                                const gameOverSection = `
+                                    <div class="bg-yellow-900/30 border border-yellow-600/50 rounded-xl p-4 mt-6">
+                                        <div class="text-yellow-300 font-black text-xl mb-2">🏆 游戏结束！</div>
+                                        <div class="text-lg text-white mb-3">${buildGameOverMessage(winner)}</div>
+                                        <div class="bg-gray-700/50 rounded-lg p-3">
+                                            <div class="text-gray-300 font-bold mb-2">最终排名：</div>
+                                            ${buildFinalScoreList(state)}
+                                        </div>
+                                    </div>
+                                `;
+                                settlementContent.insertAdjacentHTML('beforeend', gameOverSection);
+                            }
+                            // 修改按钮为"返回房间"
+                            const continueBtn = document.getElementById('confirmContinueBtn');
+                            const closeBtn = document.getElementById('closeSettlementBtn');
+                            if (continueBtn) {
+                                continueBtn.textContent = '🎮 返回房间';
+                                continueBtn.onclick = closeGameOverAndSettlement;
+                            }
+                            if (closeBtn) {
+                                closeBtn.textContent = '🎮 返回房间';
+                                closeBtn.onclick = closeGameOverAndSettlement;
+                            }
+                        }, 1000);
+                    }, 500);
+                } else {
+                    // 没有结算信息，直接显示游戏结束
+                    setTimeout(() => showGameOver(state), 500);
+                }
             }
         }
 
@@ -1462,10 +1557,10 @@
 
         function renderPlayerScoreList(players, currentPlayer) {
             const el = document.getElementById('playerScoreList');
-            if (!players || players.length === 0) { 
+            if (!players || players.length === 0) {
                 console.log('[renderPlayerScoreList] No players to render');
-                el.innerHTML = ''; 
-                return; 
+                el.innerHTML = '';
+                return;
             }
 
             console.log('[renderPlayerScoreList] Players:', players);
@@ -1484,9 +1579,9 @@
                 const isMe = pid === playerID;
                 const isCurrent = pid === currentPlayer;
                 const isOffline = p.is_offline ?? p.IsOffline ?? false;
-                
+
                 console.log(`[renderPlayerScoreList] Player ${pid}: isOffline=${isOffline}, offline_field=${p.is_offline}/${p.IsOffline}`);
-                
+
                 const rankEmoji = idx === 0 ? '👑' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : '  ';
 
                 return `
@@ -1499,7 +1594,7 @@
                         <span class="text-gray-500 text-xs">分</span>
                     </div>`;
             }).join('');
-            
+
             console.log('[renderPlayerScoreList] Rendered HTML:', el.innerHTML.substring(0, 200));
         }
 
@@ -1633,76 +1728,171 @@
 
             document.getElementById('settlementContent').innerHTML = html;
             document.getElementById('settlementModal').classList.remove('hidden');
+
+            // 显示确认继续区域（游戏未结束时）
+            const phase = gameState?.phase || '';
+            if (phase === 'waiting_continue') {
+                document.getElementById('continueArea').classList.remove('hidden');
+                document.getElementById('closeSettlementBtn').classList.add('hidden');
+                updateWaitingContinue(gameState);
+            } else {
+                document.getElementById('continueArea').classList.add('hidden');
+                document.getElementById('closeSettlementBtn').classList.remove('hidden');
+            }
         }
 
-        function closeSettlement() {
-            document.getElementById('settlementModal').classList.add('hidden');
+        // 更新等待确认继续的玩家列表
+        function updateWaitingContinue(state) {
+            const waitingList = state.waiting_for_continue || state.WaitingForContinue || [];
+            const el = document.getElementById('waitingPlayersList');
+            const btn = document.getElementById('confirmContinueBtn');
+
+            if (waitingList.length === 0) {
+                el.innerHTML = '<span class="text-green-400">✅ 所有玩家已确认，即将开始新回合...</span>';
+                if (btn) btn.classList.add('hidden');
+
+                // 所有玩家都确认了，自动关闭结算弹窗
+                setTimeout(() => {
+                    closeSettlement();
+                    log('🔄 所有玩家已确认，开始新回合', 'text-blue-400');
+                }, 1500); // 延迟1.5秒让用户看到提示
+
+                return;
+            }
+
+            // 检查自己是否已确认
+            const isMeWaiting = waitingList.includes(playerID);
+            if (isMeWaiting) {
+                el.innerHTML = `等待以下玩家确认：<span class="text-yellow-300">${waitingList.join('、')}</span>`;
+                if (btn) {
+                    btn.classList.remove('hidden');
+                    btn.disabled = false;
+                    btn.textContent = '✅ 我准备好了，继续游戏';
+                    btn.className = 'action-btn w-full bg-green-600 hover:bg-green-500 py-3 rounded-xl font-bold text-lg';
+                }
+            } else {
+                el.innerHTML = `等待以下玩家确认：<span class="text-yellow-300">${waitingList.join('、')}</span><br><span class="text-green-400 mt-1 block">✅ 你已确认</span>`;
+                if (btn) {
+                    btn.classList.remove('hidden');
+                    btn.disabled = true;
+                    btn.textContent = '✅ 已确认，等待其他玩家...';
+                    btn.className = 'action-btn w-full bg-gray-600 py-3 rounded-xl font-bold text-lg cursor-not-allowed';
+                }
+            }
         }
 
-        // ─────────────────────────────────────────────
-        // 游戏结束弹窗
-        // ─────────────────────────────────────────────
-        function handleGameOver(content) {
-            log('🏆 游戏结束！', 'text-yellow-400');
-            showGameOver(content);
-        }
-
-        function showGameOver(state) {
-            const winner = state.winner || state.Winner || '';
-            const players = state.players || state.Players || [];
+        // 构建游戏结束消息
+        function buildGameOverMessage(winner) {
             const winners = winner.split(',').map(s => s.trim()).filter(Boolean);
             const isMultiWinner = winners.length > 1;
             const iMeWinner = winners.includes(playerID);
 
-            let contentText = '';
             if (iMeWinner) {
-                contentText = isMultiWinner ? '🎊 你和其他人并列获胜！愤怒分最少！' : '🎊 恭喜你获胜！愤怒分最少！';
+                return isMultiWinner ? '🎊 你和其他人并列获胜！愤怒分最少！' : '🎊 恭喜你获胜！愤怒分最少！';
             } else {
                 const winnerStr = winners.map(w => `<span class="text-yellow-300 font-bold">${w}</span>`).join(' 和 ');
-                contentText = `${winnerStr} 获胜！愤怒分最少！`;
+                return `${winnerStr} 获胜！愤怒分最少！`;
             }
+        }
 
-            document.getElementById('gameOverContent').innerHTML = contentText;
+        // 构建最终排行榜
+        function buildFinalScoreList(state) {
+            const players = state.players || state.Players || [];
+            const winner = state.winner || state.Winner || '';
+            const winners = winner.split(',').map(s => s.trim()).filter(Boolean);
 
-            // 排行榜
+            // 按愤怒分升序排列
             const sorted = [...players].sort((a, b) => {
                 const sa = a.anger_score ?? a.AngerScore ?? 0;
                 const sb = b.anger_score ?? b.AngerScore ?? 0;
                 return sa - sb;
             });
 
-            const scoreHTML = sorted.map((p, idx) => {
+            return sorted.map((p, idx) => {
                 const pid = p.player_id || p.PlayerID;
                 const score = p.anger_score ?? p.AngerScore ?? 0;
                 const tokens = p.anger_tokens || p.AngerTokens || [];
                 const isWinner = winners.includes(pid);
-                const rankEmoji = idx === 0 ? '👑' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `${idx + 1}.`;
                 const isMe = pid === playerID;
+                const rankEmoji = idx === 0 ? '👑' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `${idx + 1}.`;
 
                 return `
-                    <div class="flex items-center gap-3 px-4 py-3 rounded-xl ${isWinner ? 'bg-yellow-900/40 border border-yellow-600/40' : 'bg-gray-700/40'}">
-                        <span class="text-xl w-8">${rankEmoji}</span>
-                        <span class="flex-1 font-bold ${isMe ? 'text-indigo-300' : 'text-white'}">${pid}${isMe ? ' (你)' : ''}</span>
+                    <div class="flex items-center gap-3 px-3 py-2 rounded-lg ${isWinner ? 'bg-yellow-900/40' : 'bg-gray-700/40'}">
+                        <span class="text-lg w-6">${rankEmoji}</span>
+                        <span class="flex-1 font-medium ${isMe ? 'text-indigo-300' : 'text-gray-200'}">${pid}${isMe ? ' (你)' : ''}</span>
                         <div class="flex gap-1">${buildAngerTokensHTML(tokens)}</div>
-                        <span class="font-black text-xl ${score >= 7 ? 'text-red-400' : 'text-white'}">${score} 分</span>
+                        <span class="font-bold ${score >= 7 ? 'text-red-400' : 'text-white'}">${score}</span>
+                        <span class="text-gray-500 text-xs">分</span>
                     </div>`;
             }).join('');
-
-            document.getElementById('finalScoreList').innerHTML = scoreHTML;
-            document.getElementById('gameOverModal').classList.remove('hidden');
-
-            document.getElementById('actionArea').classList.add('hidden');
-            document.getElementById('waitArea').classList.add('hidden');
         }
 
-        function closeGameOver() {
-            document.getElementById('gameOverModal').classList.add('hidden');
+        // 关闭游戏结束和结算弹窗
+        function closeGameOverAndSettlement() {
+            document.getElementById('settlementModal').classList.add('hidden');
+            // 重置状态
+            settlementShown = false;
+            hasConfirmedContinue = false;
             // 回到准备状态
             document.getElementById('gameArea').classList.add('hidden');
             document.getElementById('readyPanel').classList.remove('hidden');
             isReady = false;
             updateReadyButton();
-            settlementShown = false;
+        }
+        function confirmContinue() {
+            if (!ws || !currentRoomID || hasConfirmedContinue) return;
+
+            ws.send(JSON.stringify({
+                type: 'game.action',
+                room_id: currentRoomID,
+                data: { action: 'continue' }
+            }));
+
+            hasConfirmedContinue = true;
+            log('✅ 已确认继续游戏', 'text-green-400');
+
+            // 更新按钮状态
+            const btn = document.getElementById('confirmContinueBtn');
+            if (btn) {
+                btn.disabled = true;
+                btn.textContent = '✅ 已确认，等待其他玩家...';
+                btn.className = 'action-btn w-full bg-gray-600 py-3 rounded-xl font-bold text-lg cursor-not-allowed';
+            }
+
+            // 定期检查状态更新，最多检查10次
+            let checkCount = 0;
+            const maxChecks = 10;
+            const checkInterval = setInterval(() => {
+                checkCount++;
+                console.log(`[confirmContinue] 检查状态更新 ${checkCount}/${maxChecks}`);
+
+                // 如果已经关闭了弹窗或者达到最大检查次数，停止检查
+                if (document.getElementById('settlementModal').classList.contains('hidden') || checkCount >= maxChecks) {
+                    clearInterval(checkInterval);
+                    console.log('[confirmContinue] 停止状态检查');
+                    return;
+                }
+
+                // 检查当前游戏状态
+                if (gameState) {
+                    const waitingList = gameState.waiting_for_continue || gameState.WaitingForContinue || [];
+                    console.log('[confirmContinue] 当前等待列表:', waitingList);
+
+                    // 如果等待列表为空，说明所有人都确认了
+                    if (waitingList.length === 0) {
+                        console.log('[confirmContinue] 所有人都已确认，关闭弹窗');
+                        clearInterval(checkInterval);
+                        setTimeout(() => {
+                            closeSettlement();
+                            log('🔄 所有玩家已确认，开始新回合', 'text-blue-400');
+                        }, 500);
+                    }
+                }
+            }, 1000); // 每秒检查一次
+        }
+
+        function closeSettlement() {
+            document.getElementById('settlementModal').classList.add('hidden');
         }
 
         // ─────────────────────────────────────────────
