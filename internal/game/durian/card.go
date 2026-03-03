@@ -25,6 +25,7 @@ const (
 	AbilityCancelBanana GorillaAbility = "cancel_banana" // 南茜：取消香蕉订单
 	AbilityCancelCount3 GorillaAbility = "cancel_count3" // 米奇：取消数量为3的水果订单（左或右）
 	AbilityDoNothing    GorillaAbility = "do_nothing"    // 墨菲：无事发生
+	AbilitySwapOrder    GorillaAbility = "swap_order"    // 猩猩牌：交换订单区某张牌的左右水果
 )
 
 // Card 统一卡牌接口

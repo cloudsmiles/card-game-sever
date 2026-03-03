@@ -30,6 +30,9 @@ type DurianGame struct {
 	// 等待确认继续相关
 	waitingForContinue    map[string]bool // 等待哪些玩家确认继续
 	pendingNextRoundStart int             // 待开始新一轮的首个玩家索引
+
+	// 猩猩牌交换订单相关
+	waitingForSwapOrder bool // 是否正在等待玩家选择交换订单
 }
 
 // PlayedCardRecord 已打出的牌记录
@@ -216,6 +219,9 @@ func (g *DurianGame) startNewRound(firstPlayerIdx int) error {
 	}
 
 	g.phase = "playing"
+	// 重置游戏结束状态（重要：开始新回合时必须重置）
+	g.gameOver = false
+	g.winner = ""
 	return nil
 }
 
@@ -224,6 +230,11 @@ func (g *DurianGame) startNewRound(firstPlayerIdx int) error {
 func (g *DurianGame) processTakeOrder(playerID string, act interfaces.Action) (bool, error) {
 	if g.phase != "playing" {
 		return false, fmt.Errorf("当前阶段 %s 不能接订单", g.phase)
+	}
+
+	// 检查是否正在等待交换订单（猩猩牌效果）
+	if g.waitingForSwapOrder {
+		return g.processSwapOrder(playerID, act)
 	}
 
 	// 检查是否已有翻开的牌等待处理
@@ -238,12 +249,22 @@ func (g *DurianGame) processTakeOrder(playerID string, act interfaces.Action) (b
 		// 清空上一轮的结算结果（新一轮第一个行动时）
 		g.lastSettlement = nil
 
-		// 如果是猩猩牌，直接触发强制结算（没有选择）
-		if _, isGorilla := card.(*GorillaCard); isGorilla {
-			g.deck.Discard(card)
-			g.flippedCard = nil
-			// 强制结算，摇铃者视为当前玩家
-			return g.processRingBell(playerID)
+		// 如果是猩猩牌，进入交换订单阶段
+		if gorillaCard, isGorilla := card.(*GorillaCard); isGorilla {
+			// 检查订单历史是否为空
+			if len(g.playedCardsHistory) == 0 {
+				// 没有订单可以交换，直接废弃猩猩牌并结束回合
+				g.deck.Discard(card)
+				g.flippedCard = nil
+				return true, nil
+			}
+			// 进入等待交换订单状态
+			g.waitingForSwapOrder = true
+			// 给猩猩牌设置交换能力
+			gorillaCard.Ability = AbilitySwapOrder
+			gorillaCard.Description = "猩猩牌效果：选择订单区中的一张牌，交换其左右水果"
+			// 不结束回合，等待玩家选择要交换的订单
+			return false, nil
 		}
 
 		// 翻牌成功，等待玩家选择，不结束回合
@@ -292,6 +313,84 @@ func (g *DurianGame) processTakeOrder(playerID string, act interfaces.Action) (b
 	return true, nil
 }
 
+// processSwapOrder 处理猩猩牌的交换订单效果
+// 玩家选择历史记录中的一张牌，交换其左右水果
+func (g *DurianGame) processSwapOrder(playerID string, act interfaces.Action) (bool, error) {
+	// 解析选择的订单索引
+	dataMap, ok := act.Data.(map[string]interface{})
+	if !ok {
+		return false, fmt.Errorf("无效的交换订单数据格式")
+	}
+
+	orderIndexVal, exists := dataMap["order_index"]
+	if !exists {
+		return false, fmt.Errorf("缺少 order_index 参数")
+	}
+
+	var orderIndex int
+	switch v := orderIndexVal.(type) {
+	case float64:
+		orderIndex = int(v)
+	case int:
+		orderIndex = v
+	default:
+		return false, fmt.Errorf("order_index 必须是数字")
+	}
+
+	// 验证索引合法性
+	if orderIndex < 0 || orderIndex >= len(g.playedCardsHistory) {
+		return false, fmt.Errorf("无效的订单索引 %d，有效范围 0~%d", orderIndex, len(g.playedCardsHistory)-1)
+	}
+
+	// 获取要交换的记录
+	record := &g.playedCardsHistory[orderIndex]
+	fruitCard, ok := record.Card.(*FruitCard)
+	if !ok {
+		return false, fmt.Errorf("只能交换水果牌")
+	}
+
+	// 计算该记录在订单区中的贡献
+	oldLeftFruit := fruitCard.LeftFruit
+	oldLeftCount := fruitCard.LeftCount
+	oldRightFruit := fruitCard.RightFruit
+	oldRightCount := fruitCard.RightCount
+
+	// 从订单区中移除原来的贡献
+	if record.ChosenSide == "left" {
+		g.orders[oldLeftFruit] -= oldLeftCount
+	} else {
+		g.orders[oldRightFruit] -= oldRightCount
+	}
+
+	// 交换牌的左右水果
+	fruitCard.LeftFruit, fruitCard.RightFruit = fruitCard.RightFruit, fruitCard.LeftFruit
+	fruitCard.LeftCount, fruitCard.RightCount = fruitCard.RightCount, fruitCard.LeftCount
+
+	// 将交换后的另一面加入订单区
+	if record.ChosenSide == "left" {
+		// 原来选了左面，现在左面变成了原来的右面
+		g.orders[fruitCard.LeftFruit] += fruitCard.LeftCount
+	} else {
+		// 原来选了右面，现在右面变成了原来的左面
+		g.orders[fruitCard.RightFruit] += fruitCard.RightCount
+	}
+
+	// 确保订单数量不为负
+	for fruit := range g.orders {
+		if g.orders[fruit] < 0 {
+			g.orders[fruit] = 0
+		}
+	}
+
+	// 废弃猩猩牌并清理状态
+	g.deck.Discard(g.flippedCard)
+	g.flippedCard = nil
+	g.waitingForSwapOrder = false
+
+	// 返回 true，结束当前玩家回合
+	return true, nil
+}
+
 // processContinue 处理玩家确认继续（结算后等待所有人确认）
 func (g *DurianGame) processContinue(playerID string) (bool, error) {
 	if g.phase != "waiting_continue" {
@@ -323,6 +422,9 @@ func (g *DurianGame) processContinue(playerID string) (bool, error) {
 		// 清空等待状态
 		g.waitingForContinue = nil
 		g.pendingNextRoundStart = 0
+
+		// 返回 true 表示回合结束，这样 room.go 会调用 AdvanceTurn 并广播状态
+		return true, nil
 	}
 
 	return false, nil
@@ -443,6 +545,8 @@ func (g *DurianGame) buildPublicState() map[string]interface{} {
 		"current_drawn_card": g.getFlippedCardForState(),
 		// 添加历史记录
 		"played_cards_history": g.getPlayedCardsHistoryForState(),
+		// 添加是否等待交换订单状态
+		"waiting_for_swap_order": g.waitingForSwapOrder,
 	}
 
 	// 附加最近一次结算信息（结算/轮次结束时有意义）

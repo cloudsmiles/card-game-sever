@@ -431,6 +431,27 @@
                         </div>
                     </div>
 
+                    <!-- 猩猩牌交换订单区域（默认隐藏） -->
+                    <div id="swapOrderArea" class="hidden bg-gray-800/50 rounded-2xl p-4 border border-orange-500/50">
+                        <div class="flex items-center gap-2 mb-3">
+                            <span class="text-2xl">🦍</span>
+                            <div class="text-orange-400 font-bold">猩猩牌效果：交换订单</div>
+                        </div>
+                        <div class="text-sm text-gray-300 mb-3">
+                            选择订单区中的一张牌，交换其左右两边的水果
+                        </div>
+                        <div id="swapOrderSelection" class="space-y-2 max-h-48 overflow-y-auto">
+                            <!-- 动态生成可交换的订单列表 -->
+                        </div>
+                        <div class="mt-4">
+                            <button onclick="confirmSwapOrder()" id="btnConfirmSwap"
+                                class="action-btn w-full bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 py-3 rounded-xl font-bold text-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                                disabled>
+                                ✅ 确认交换
+                            </button>
+                        </div>
+                    </div>
+
                     <!-- 等待他人行动提示 -->
                     <div id="waitArea" class="hidden bg-gray-800/50 rounded-2xl p-4 border border-gray-700 text-center">
                         <div class="text-gray-400 text-sm">
@@ -557,7 +578,8 @@
         const GORILLA_ABILITY_NAME = {
             cancel_banana: '🍌 南茜：香蕉库存无限',
             cancel_count3: '🦍 米奇：去除数量为3的水果库存',
-            do_nothing: '😴 墨菲：无事发生'
+            do_nothing: '😴 墨菲：无事发生',
+            swap_order: '🔄 猩猩牌：交换订单区某张牌的左右水果'
         };
 
         const PHASE_NAME = {
@@ -584,6 +606,8 @@
         let currentDrawnCard = null; // 当前抽到的牌
         let playedCardsHistory = []; // 已打出的牌历史
         let hasConfirmedContinue = false; // 本轮是否已点击确认继续
+        let waitingForSwapOrder = false; // 是否正在等待交换订单（猩猩牌效果）
+        let pendingSwapOrderIndex = null; // 待交换的订单索引
 
         // ─────────────────────────────────────────────
         // 机器人管理
@@ -670,8 +694,10 @@
                 const currentPlayer = this.gameState.current;
                 const isMyTurn = currentPlayer === this.playerID;
                 const phase = this.gameState.phase;
+                const waitingForSwapOrder = this.gameState.waiting_for_swap_order || false;
+                const playedCardsHistory = this.gameState.played_cards_history || [];
 
-                console.log(`[Bot ${this.name}] current:`, currentPlayer, 'myID:', this.playerID, 'isMyTurn:', isMyTurn, 'phase:', phase);
+                console.log(`[Bot ${this.name}] current:`, currentPlayer, 'myID:', this.playerID, 'isMyTurn:', isMyTurn, 'phase:', phase, 'waitingForSwapOrder:', waitingForSwapOrder);
 
                 // 防止重复行动：如果已经在行动中，忽略这次调用
                 if (this.isActing) {
@@ -688,6 +714,26 @@
                 this.isActing = true;
 
                 setTimeout(() => {
+                    // 检查是否正在等待交换订单（猩猩牌效果）
+                    if (waitingForSwapOrder) {
+                        // 猩猩牌效果：必须选择一张订单进行交换
+                        if (playedCardsHistory.length > 0) {
+                            // 随机选择一张订单进行交换
+                            const randomIndex = Math.floor(Math.random() * playedCardsHistory.length);
+                            this.send({
+                                type: 'game.action',
+                                room_id: this.roomID,
+                                data: {
+                                    action: 'take_order',
+                                    card: { order_index: randomIndex }
+                                }
+                            });
+                            console.log(`[Bot ${this.name}] 猩猩牌交换订单：索引 ${randomIndex}`);
+                        }
+                        this.isActing = false;
+                        return;
+                    }
+
                     // 简单策略：
                     // - 85% 概率接新订单（随机选左/右）
                     // - 15% 概率摇铃（当订单数量较大时）
@@ -1416,6 +1462,9 @@
         function handleDrawnCardAndHistory(state) {
             console.log('[DEBUG] handleDrawnCardAndHistory called with state:', state);
 
+            // 处理等待交换订单状态（猩猩牌效果）
+            waitingForSwapOrder = state.waiting_for_swap_order || false;
+
             // 处理当前抽到的牌
             if (state.current_drawn_card) {
                 console.log('[DEBUG] Found current_drawn_card:', state.current_drawn_card);
@@ -1424,14 +1473,29 @@
                 document.getElementById('currentDrawnCard').innerHTML = buildDrawnCardPreview(currentDrawnCard);
                 console.log('[DEBUG] Updated drawn card preview');
 
-                // 收到牌后，隐藏翻牌按钮和摇铃按钮，显示选择按钮
-                document.getElementById('flipCardArea').classList.add('hidden');
-                document.getElementById('ringBellArea').classList.add('hidden');
-                document.getElementById('orderButtons').classList.remove('hidden');
+                // 检查是否是猩猩牌且正在等待交换订单
+                if (waitingForSwapOrder && currentDrawnCard.card_type === 'gorilla') {
+                    // 显示猩猩牌交换订单界面
+                    document.getElementById('flipCardArea').classList.add('hidden');
+                    document.getElementById('ringBellArea').classList.add('hidden');
+                    document.getElementById('orderButtons').classList.add('hidden');
+                    document.getElementById('swapOrderArea').classList.remove('hidden');
+                    renderSwapOrderSelection();
+                    log('🦍 抽到猩猩牌！请选择订单区中的一张牌进行交换', 'text-orange-400');
+                } else {
+                    // 普通水果牌，显示左右选择按钮
+                    document.getElementById('flipCardArea').classList.add('hidden');
+                    document.getElementById('ringBellArea').classList.add('hidden');
+                    document.getElementById('orderButtons').classList.remove('hidden');
+                    document.getElementById('swapOrderArea').classList.add('hidden');
+                }
             } else {
                 console.log('[DEBUG] No current_drawn_card found');
                 currentDrawnCard = null;
+                waitingForSwapOrder = false;
+                pendingSwapOrderIndex = null;
                 document.getElementById('drawnCardPreview').classList.add('hidden');
+                document.getElementById('swapOrderArea').classList.add('hidden');
 
                 // 没有翻开的牌时，重置翻牌按钮状态，显示翻牌按钮和摇铃按钮
                 const btnFlip = document.getElementById('btnFlip');
@@ -1485,6 +1549,73 @@
                 <div class="text-gray-500 text-center text-sm py-8">
                     <div>暂无历史记录</div>
                 </div>`;
+        }
+
+        // 渲染交换订单选择列表（猩猩牌效果）
+        function renderSwapOrderSelection() {
+            const container = document.getElementById('swapOrderSelection');
+
+            if (!playedCardsHistory || playedCardsHistory.length === 0) {
+                container.innerHTML = `
+                    <div class="text-gray-500 text-center text-sm py-4">
+                        <div>订单区为空，无法交换</div>
+                    </div>`;
+                return;
+            }
+
+            let html = '';
+            playedCardsHistory.forEach((record, index) => {
+                const playerName = record.player_name || record.PlayerName || '未知玩家';
+                const card = record.card || record.Card;
+                const chosenSide = record.chosen_side || record.ChosenSide;
+
+                if (!card || card.card_type !== 'fruit') return;
+
+                const leftFruit = card.left_fruit || '';
+                const rightFruit = card.right_fruit || '';
+                const leftCount = card.left_count || 0;
+                const rightCount = card.right_count || 0;
+                const leftEmoji = FRUIT_EMOJI[leftFruit] || '❓';
+                const rightEmoji = FRUIT_EMOJI[rightFruit] || '❓';
+
+                const isSelected = pendingSwapOrderIndex === index;
+                const borderClass = isSelected ? 'border-orange-500 bg-orange-900/30' : 'border-gray-600 bg-gray-700/50';
+
+                html += `
+                    <div onclick="selectSwapOrder(${index})" 
+                         class="cursor-pointer rounded-lg border-2 ${borderClass} p-3 transition-all hover:border-orange-400">
+                        <div class="flex items-center justify-between">
+                            <div class="text-xs text-gray-400">${playerName}</div>
+                            ${isSelected ? '<span class="text-orange-400 text-xs">✓ 已选择</span>' : ''}
+                        </div>
+                        <div class="flex items-center justify-center gap-4 mt-2">
+                            <div class="flex flex-col items-center ${chosenSide === 'left' ? 'opacity-100' : 'opacity-50'}">
+                                <span class="text-lg">${leftEmoji}</span>
+                                <span class="text-xs font-bold">×${leftCount}</span>
+                            </div>
+                            <div class="text-gray-500">⇄</div>
+                            <div class="flex flex-col items-center ${chosenSide === 'right' ? 'opacity-100' : 'opacity-50'}">
+                                <span class="text-lg">${rightEmoji}</span>
+                                <span class="text-xs font-bold">×${rightCount}</span>
+                            </div>
+                        </div>
+                        <div class="text-center text-xs text-gray-500 mt-1">
+                            已选: ${chosenSide === 'left' ? '左面' : '右面'}
+                        </div>
+                    </div>`;
+            });
+
+            container.innerHTML = html || `
+                <div class="text-gray-500 text-center text-sm py-4">
+                    <div>没有可交换的水果牌</div>
+                </div>`;
+        }
+
+        // 选择要交换的订单
+        function selectSwapOrder(index) {
+            pendingSwapOrderIndex = index;
+            renderSwapOrderSelection();
+            document.getElementById('btnConfirmSwap').disabled = false;
         }
 
         // ─────────────────────────────────────────────
@@ -2097,6 +2228,36 @@
 
             log('🔔 你摇铃了！触发结算！', 'text-red-400');
             setTimeout(() => { isProcessingAction = false; }, 800);
+        }
+
+        // 确认交换订单（猩猩牌效果）
+        function confirmSwapOrder() {
+            if (!ws || !currentRoomID || isProcessingAction) return;
+            if (pendingSwapOrderIndex === null) {
+                alert('请先选择要交换的订单');
+                return;
+            }
+
+            isProcessingAction = true;
+            ws.send(JSON.stringify({
+                type: 'game.action',
+                room_id: currentRoomID,
+                data: {
+                    action: 'take_order',
+                    card: { order_index: pendingSwapOrderIndex }
+                }
+            }));
+
+            log(`🦍 使用猩猩牌交换了第 ${pendingSwapOrderIndex + 1} 张订单的左右水果`, 'text-orange-400');
+
+            // 重置状态
+            pendingSwapOrderIndex = null;
+            waitingForSwapOrder = false;
+            currentDrawnCard = null;
+            document.getElementById('swapOrderArea').classList.add('hidden');
+            document.getElementById('btnConfirmSwap').disabled = true;
+
+            setTimeout(() => { isProcessingAction = false; }, 500);
         }
 
         // ─────────────────────────────────────────────
