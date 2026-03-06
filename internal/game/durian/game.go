@@ -240,24 +240,29 @@ func (g *DurianGame) processTakeOrder(playerID string, act interfaces.Action) (b
 	// 检查是否已有翻开的牌等待处理
 	if g.flippedCard == nil {
 		// 第一步：从牌堆翻一张牌，等待玩家选择
-		card, ok := g.deck.Draw()
-		if !ok {
-			return false, fmt.Errorf("牌堆已空，无法翻牌")
+		// 如果第一轮且没有订单历史，需要确保翻到水果牌（猩猩牌无法处理）
+		for {
+			card, ok := g.deck.Draw()
+			if !ok {
+				return false, fmt.Errorf("牌堆已空，无法翻牌")
+			}
+
+			// 检查是否是猩猩牌且订单历史为空（第一轮第一个人翻牌时）
+			if _, isGorilla := card.(*GorillaCard); isGorilla && len(g.playedCardsHistory) == 0 {
+				// 废弃猩猩牌，继续翻下一张
+				g.deck.Discard(card)
+				continue
+			}
+
+			g.flippedCard = card
+			break
 		}
-		g.flippedCard = card
 
 		// 清空上一轮的结算结果（新一轮第一个行动时）
 		g.lastSettlement = nil
 
 		// 如果是猩猩牌，进入交换订单阶段
-		if gorillaCard, isGorilla := card.(*GorillaCard); isGorilla {
-			// 检查订单历史是否为空
-			if len(g.playedCardsHistory) == 0 {
-				// 没有订单可以交换，直接废弃猩猩牌并结束回合
-				g.deck.Discard(card)
-				g.flippedCard = nil
-				return true, nil
-			}
+		if gorillaCard, isGorilla := g.flippedCard.(*GorillaCard); isGorilla {
 			// 进入等待交换订单状态
 			g.waitingForSwapOrder = true
 			// 给猩猩牌设置交换能力
