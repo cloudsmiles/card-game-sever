@@ -1473,8 +1473,9 @@
                 document.getElementById('currentDrawnCard').innerHTML = buildDrawnCardPreview(currentDrawnCard);
                 console.log('[DEBUG] Updated drawn card preview');
 
-                // 检查是否是猩猩牌且正在等待交换订单
-                if (waitingForSwapOrder && currentDrawnCard.card_type === 'gorilla') {
+                // 检查是否是猩猩牌且正在等待交换订单（且是当前玩家的回合）
+                const isMyTurn = state.current === playerID;
+                if (waitingForSwapOrder && currentDrawnCard.card_type === 'gorilla' && isMyTurn) {
                     // 显示猩猩牌交换订单界面
                     document.getElementById('flipCardArea').classList.add('hidden');
                     document.getElementById('ringBellArea').classList.add('hidden');

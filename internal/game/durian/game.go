@@ -474,9 +474,9 @@ func (g *DurianGame) processRingBell(playerID string) (bool, error) {
 	}
 
 	// 游戏未结束，进入等待确认状态
-	// 从受罚玩家的下一位开始（记录待开始的位置）
+	// 从受罚玩家开始（记录待开始的位置）
 	punishedIdx := indexOfPlayer(g.players, result.PunishedPlayer)
-	g.pendingNextRoundStart = (punishedIdx + 1) % len(g.players)
+	g.pendingNextRoundStart = punishedIdx % len(g.players)
 
 	// 初始化等待确认列表（所有玩家都需要确认）
 	g.waitingForContinue = make(map[string]bool)
