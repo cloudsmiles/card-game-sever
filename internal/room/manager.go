@@ -2,7 +2,6 @@ package room
 
 import (
 	"fmt"
-	"log"
 	"sync"
 )
 
@@ -78,5 +77,4 @@ func (m *Manager) RemoveRoom(id string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.rooms, id)
-	log.Printf("房间 [%s] 已从管理器移除", id)
 }

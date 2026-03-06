@@ -61,7 +61,6 @@ func WSHandler(w http.ResponseWriter, r *http.Request) {
 
 	// 连接验证通过后才注册清理 defer
 	defer func() {
-		log.Printf("连接断开，开始清理资源 [玩家: %s]", playerID)
 		// 连接断开时清理资源
 		if playerID != "" && currentRoomID != "" {
 			roomObj, err := room.GlobalManager.GetRoom(currentRoomID)

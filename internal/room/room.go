@@ -60,8 +60,6 @@ func (r *Room) AddPlayer(playerID string, sendChan chan types.Message) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	log.Printf("尝试添加玩家 [房间：%s, 玩家：%s], 当前人数：%d/%d", r.ID, playerID, len(r.Players), r.Game.MaxPlayers())
-
 	// 游戏中不能加入
 	if r.State == types.RoomPlaying {
 		return fmt.Errorf("游戏进行中，无法加入")
@@ -87,7 +85,7 @@ func (r *Room) AddPlayer(playerID string, sendChan chan types.Message) error {
 	}
 
 	r.Players[playerID] = &Client{PlayerID: playerID, SeatNumber: seatNumber, Send: sendChan}
-	log.Printf("玩家加入成功 [房间：%s, 玩家：%s, 座位：%d]", r.ID, playerID, seatNumber)
+	log.Printf("玩家加入成功 [房间：%s, 玩家：%s, 座位：%d, 当前人数：%d/%d]", r.ID, playerID, seatNumber, len(r.Players), r.Game.MaxPlayers())
 
 	// 广播房间状态变更（包含玩家加入）
 	r.broadcastRoomStateWithMessage(fmt.Sprintf("玩家 %s 加入了房间", playerID))
@@ -147,7 +145,6 @@ func (r *Room) MarkPlayerOffline(playerID string) {
 
 	// 记录断线时间
 	r.OfflinePlayers[playerID] = time.Now()
-	log.Printf("玩家 [%s] 标记为断线 [房间：%s]", playerID, r.ID)
 
 	// 广播断线信息（但不改变房间状态）
 	r.broadcastRoomStateWithMessage(fmt.Sprintf("玩家 %s 断线，等待重连...", playerID))
@@ -221,15 +218,13 @@ func (r *Room) handleDisconnectTimeout() {
 	// 清空 OfflinePlayers 映射
 	r.OfflinePlayers = make(map[string]time.Time)
 
-	log.Printf("所有断线玩家已清理 [房间：%s]，当前剩余玩家: %d", r.ID, len(r.Players))
-
 	// 如果房间空了，清理资源
 	if len(r.Players) == 0 {
 		if r.disconnectTimer != nil {
 			r.disconnectTimer.Stop()
 		}
 		close(r.broadcast)
-		log.Printf("房间 [%s] 已空，资源已清理", r.ID)
+		log.Printf("房间 [%s] 资源已清理", r.ID)
 		// 通知Manager移除房间
 		go GlobalManager.RemoveRoom(r.ID)
 	}
@@ -329,7 +324,7 @@ func (r *Room) RemovePlayer(playerID string) bool {
 			r.disconnectTimer.Stop()
 		}
 		close(r.broadcast)
-		log.Printf("房间 [%s] 已空，资源已清理", r.ID)
+		log.Printf("房间 [%s] 资源已清理", r.ID)
 		// 通知Manager移除房间
 		go GlobalManager.RemoveRoom(r.ID)
 	}
@@ -463,11 +458,6 @@ func (r *Room) broadcastRoomStateInternal(message string) {
 			onlinePlayers = append(onlinePlayers, playerID)
 		}
 	}
-	log.Printf("构建 room_state_changed 消息，总玩家数: %d, 在线玩家数: %d", len(r.Players), onlineCount)
-	log.Printf("  在线玩家: %v", onlinePlayers)
-	log.Printf("  断线玩家: %v", offlinePlayers)
-	log.Printf("  OfflinePlayers 映射: %v", r.OfflinePlayers)
-
 	if r.Game == nil {
 		log.Printf("错误：r.Game 为 nil")
 		return
@@ -490,7 +480,7 @@ func (r *Room) broadcastRoomStateInternal(message string) {
 		}
 	}
 
-	log.Printf("房间 [%s] 广播状态: state=%s, 总玩家数=%d, 在线玩家数=%d, message=%s", r.ID, r.State, len(r.Players), onlineCount, message)
+	// log.Printf("房间 [%s] 广播状态: state=%s, 总玩家数=%d, 在线玩家数=%d, message=%s", r.ID, r.State, len(r.Players), onlineCount, message)
 
 	stateMsg := types.Message{
 		Type: types.Broadcast,
@@ -535,12 +525,11 @@ func (r *Room) ProcessGameAction(playerID string, data types.GameActionData) err
 		return err
 	}
 
-	log.Printf("ProcessAction 完成: turnEnded=%v, IsGameOver=%v", turnEnded, r.Game.IsGameOver())
+	log.Printf("处理卡牌指令 [房间：%s, 玩家：%s, action：%s, 回合是否结束：%v, 游戏是否结束：%v]", r.ID, playerID, action.Type, turnEnded, r.Game.IsGameOver())
 
 	r.broadcastState() // 出牌后立即全房间广播新状态
 
 	// 检查游戏是否结束（玩家出完牌）
-	log.Printf("检查游戏结束: IsGameOver=%v", r.Game.IsGameOver())
 	if r.Game.IsGameOver() {
 		winner := r.Game.Winner()
 		log.Printf("游戏结束，获胜者: %s", winner)
@@ -586,8 +575,6 @@ func (r *Room) broadcastState() {
 }
 
 func (r *Room) startGame() error {
-	log.Printf("初始化游戏 [房间：%s]", r.ID)
-
 	// 按座位号排序玩家ID
 	playerIDs := make([]string, r.Game.MaxPlayers())
 	for seatNum := 0; seatNum < r.Game.MaxPlayers(); seatNum++ {
@@ -608,8 +595,6 @@ func (r *Room) startGame() error {
 	r.BroadcastPersonalized(types.GameStarted, func(playerID string) interface{} {
 		return r.Game.GetStateForPlayer(playerID)
 	})
-
-	log.Printf("游戏开始广播完成 [房间：%s]", r.ID)
 	return nil
 }
 
@@ -643,10 +628,9 @@ func (r *Room) runBroadcast() {
 				select {
 				case c.Send <- msg:
 					sentCount++
-					// 安全类型断言，避免 panic
-					if broadcastData, ok := msg.Data.(types.BroadcastData); ok {
-						log.Printf("广播消息发送给玩家 [%s] [房间：%s], 事件：%v", c.PlayerID, r.ID, broadcastData.Event)
-					}
+					// if broadcastData, ok := msg.Data.(types.BroadcastData); ok {
+					// log.Printf("广播消息发送给玩家 [%s] [房间：%s], 事件：%v,", c.PlayerID, r.ID, broadcastData.Event)
+					// }
 				default: // 防止单个客户端卡住影响他人
 					log.Printf("警告：玩家 [%s] 的消息队列已满，丢弃消息 [房间：%s]", c.PlayerID, r.ID)
 				}
@@ -695,7 +679,7 @@ func (r *Room) handlePersonalizedBroadcast(data types.PersonalizedBroadcastData)
 			// 非阻塞发送
 			select {
 			case client.Send <- msg:
-				log.Printf("个性化广播消息发送给玩家 [%s] [房间：%s], 事件：%v", playerID, r.ID, data.Event)
+				// log.Printf("个性化广播消息发送给玩家 [%s] [房间：%s], 事件：%v", playerID, r.ID, data.Event)
 			default:
 				log.Printf("警告：玩家 [%s] 的消息队列已满，丢弃个性化消息 [房间：%s]", playerID, r.ID)
 			}
