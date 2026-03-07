@@ -1,12 +1,18 @@
 package interfaces
 
+// TimeoutHandler 超时处理接口（游戏层实现，房间层调用）
+type TimeoutHandler interface {
+	HandleTurnTimeout(playerID string) error    // 处理回合操作超时
+	HandlePendingTimeout() error                // 处理等待响应超时
+	SetTimeoutCallbacks(onTurnTimeout func(playerID string), onPendingTimeout func()) // 设置超时回调
+}
+
 // Game 是所有卡牌游戏必须实现的通用接口
 type Game interface {
 	ID() string
-	Init(players []string) error                                     // 初始化，回合从第0位玩家开始
+	Init(players []string) error                                     // 初始化，回合从第 0 位玩家开始
 	ProcessAction(playerID string, action interface{}) (bool, error) // 处理卡牌指令，返回是否结束本回合
-	CurrentTurn() string                                             // 当前回合玩家ID
-	AdvanceTurn()                                                    // 切换到下一个玩家
+	CurrentTurn() string                                             // 当前回合玩家 ID
 	GetState() interface{}                                           // 返回游戏状态（不包含敏感信息如其他玩家手牌）
 	GetStateForPlayer(playerID string) interface{}                   // 返回指定玩家的游戏状态（包含该玩家的手牌等私密信息）
 	IsGameOver() bool

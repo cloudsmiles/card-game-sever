@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"sort"
+	"time"
 
 	"card-game-server/internal/game/interfaces"
 )
@@ -74,6 +75,14 @@ type MahjongGame struct {
 	gameOver  bool
 	winner    string
 	winResult *WinResult
+
+	// 游戏内定时器（游戏层自己管理）
+	turnTimer    *time.Timer // 回合操作超时定时器
+	pendingTimer *time.Timer // 等待响应超时定时器
+
+	// 超时回调（通知房间层执行自动操作）
+	onTurnTimeout    func(playerID string) // 回合操作超时回调
+	onPendingTimeout func()                // 等待响应超时回调
 }
 
 func New() interfaces.Game {
@@ -127,6 +136,9 @@ func (g *MahjongGame) Init(players []string) error {
 	g.currentSeat = g.dealerSeat
 	g.phase = PhasePlay
 
+	// 启动第一个玩家的出牌定时器
+	g.startTurnTimer()
+
 	log.Printf("[麻将] 游戏初始化完成，庄家座位:%d，牌墙剩余:%d", g.dealerSeat, len(g.wall))
 	return nil
 }
@@ -135,8 +147,89 @@ func (g *MahjongGame) CurrentTurn() string {
 	return g.players[g.currentSeat]
 }
 
+// SetTimeoutCallbacks 设置超时回调函数（由房间层调用）
+func (g *MahjongGame) SetTimeoutCallbacks(
+	onTurnTimeout func(playerID string),
+	onPendingTimeout func(),
+) {
+	g.onTurnTimeout = onTurnTimeout
+	g.onPendingTimeout = onPendingTimeout
+}
+
+// HandleTurnTimeout 处理回合操作超时（游戏层自己决定如何处理）
+func (g *MahjongGame) HandleTurnTimeout(playerID string) error {
+	// 游戏层自己执行自动出牌逻辑
+	// ProcessAction 会在 turnEnded=true 时自动调用 AdvanceTurn()
+	action := interfaces.Action{Type: ActionDiscard, Data: nil}
+	_, err := g.ProcessAction(playerID, action)
+	return err
+}
+
+// HandlePendingTimeout 处理等待响应超时（游戏层模拟所有人都 pass）
+func (g *MahjongGame) HandlePendingTimeout() error {
+	// 等待响应超时，相当于所有人都 pass
+	// 清理 pending 状态
+	g.pendingActions = make(map[int][]string)
+	g.pendingResponses = make(map[int]*PendingResponse)
+	g.pendingChowData = make(map[int]interface{})
+
+	// 停止当前的等待响应定时器
+	g.stopPendingTimer()
+
+	// 直接推进到下一玩家并摸牌（模拟所有人都pass的情况）
+	g.advanceToNextPlayer()
+	log.Printf("[麻将] 等待响应超时，视为全部 pass，推进到座位%d", g.currentSeat)
+	return nil
+}
+
+// startTurnTimer 启动回合操作超时定时器（游戏层自己管理）
+func (g *MahjongGame) startTurnTimer() {
+	g.stopTurnTimer()
+
+	g.turnTimer = time.AfterFunc(30*time.Second, func() {
+		// 回合操作超时，通知房间层
+		if g.onTurnTimeout != nil {
+			g.onTurnTimeout(g.players[g.currentSeat])
+		}
+	})
+}
+
+// stopTurnTimer 停止回合操作超时定时器
+func (g *MahjongGame) stopTurnTimer() {
+	if g.turnTimer != nil {
+		g.turnTimer.Stop()
+		g.turnTimer = nil
+	}
+}
+
+// startPendingTimer 启动等待响应超时定时器（游戏层自己管理）
+func (g *MahjongGame) startPendingTimer() {
+	g.stopPendingTimer()
+
+	log.Printf("[麻将] 启动等待响应定时器（10秒）")
+	g.pendingTimer = time.AfterFunc(10*time.Second, func() {
+		log.Printf("[麻将] 等待响应定时器触发")
+		// 等待响应超时，通知房间层
+		if g.onPendingTimeout != nil {
+			g.onPendingTimeout()
+		} else {
+			log.Printf("[麻将] 警告：onPendingTimeout 回调为 nil")
+		}
+	})
+}
+
+// stopPendingTimer 停止等待响应超时定时器
+func (g *MahjongGame) stopPendingTimer() {
+	if g.pendingTimer != nil {
+		g.pendingTimer.Stop()
+		g.pendingTimer = nil
+	}
+}
+
 func (g *MahjongGame) AdvanceTurn() {
-	// 由内部逻辑控制，不外部调用
+	// 推进到下一玩家并摸牌（正常回合结束或超时都会调用这里）
+	// 注意：advanceToNextPlayer 内部会启动新的定时器，所以这里不需要额外处理
+	g.advanceToNextPlayer()
 }
 
 // ProcessAction 处理玩家动作
@@ -151,13 +244,60 @@ func (g *MahjongGame) ProcessAction(playerID string, action interface{}) (bool, 
 		return false, fmt.Errorf("玩家不在游戏中")
 	}
 
+	// 验证操作是否有效（是当前回合玩家或pending阶段有权限的玩家）
+	if g.phase == PhasePlay && seat != g.currentSeat {
+		return false, fmt.Errorf("不是你的回合")
+	}
+	if g.phase == PhasePending {
+		if _, hasAction := g.pendingActions[seat]; !hasAction {
+			return false, fmt.Errorf("你没有可执行的操作")
+		}
+	}
+
+	// 操作有效，停止当前定时器
+	g.stopTurnTimer()
+	g.stopPendingTimer()
+
+	var turnEnded bool
+	var err error
+
 	switch g.phase {
 	case PhasePlay:
-		return g.handlePlayAction(seat, act)
+		turnEnded, err = g.handlePlayAction(seat, act)
 	case PhasePending:
-		return g.handlePendingAction(seat, act)
+		turnEnded, err = g.handlePendingAction(seat, act)
+	default:
+		// 未知阶段，启动出牌定时器作为 fallback
+		g.startTurnTimer()
+		return false, fmt.Errorf("未知游戏阶段: %s", g.phase)
 	}
-	return false, fmt.Errorf("未知游戏阶段: %s", g.phase)
+
+	if err != nil {
+		// 操作执行失败，根据当前阶段重启相应的定时器
+		if g.phase == PhasePending {
+			g.startPendingTimer()
+		} else {
+			g.startTurnTimer()
+		}
+		return false, err
+	}
+
+	// 如果回合已结束（需要推进），游戏层自己推进
+	// 注意：AdvanceTurn 内部会处理定时器启动
+	if turnEnded {
+		g.AdvanceTurn()
+		return true, nil
+	}
+
+	// 回合未结束，根据游戏状态启动相应的定时器
+	// 如果处于等待响应阶段，启动响应定时器；否则启动出牌定时器
+	if g.phase == PhasePending {
+		g.startPendingTimer()
+	} else {
+		g.startTurnTimer()
+	}
+
+	return false, nil
 }
 
 // === 出牌阶段 ===
@@ -180,9 +320,25 @@ func (g *MahjongGame) handlePlayAction(seat int, act interfaces.Action) (bool, e
 }
 
 func (g *MahjongGame) handleDiscard(seat int, data interface{}) (bool, error) {
-	tile, ok := ParseTile(data)
-	if !ok {
-		return false, fmt.Errorf("无效的牌数据")
+	var tile Tile
+	var ok bool
+
+	if data == nil {
+		// 自动出牌：打出第一张牌（最后一张是刚摸的，不打）
+		if len(g.hands[seat]) == 0 {
+			return false, fmt.Errorf("没有手牌可出")
+		}
+		// 打出第一张非刚摸的牌，如果没有则打出第一张
+		tile = g.hands[seat][0]
+		if len(g.hands[seat]) > 1 {
+			// 找到不是最后一张的牌（最后一张是刚摸的）
+			tile = g.hands[seat][len(g.hands[seat])-2]
+		}
+	} else {
+		tile, ok = ParseTile(data)
+		if !ok {
+			return false, fmt.Errorf("无效的牌数据")
+		}
 	}
 
 	if !g.hands[seat].Contains(tile) {
@@ -205,12 +361,10 @@ func (g *MahjongGame) handleDiscard(seat int, data interface{}) (bool, error) {
 		g.phase = PhasePending
 		g.pendingResponses = make(map[int]*PendingResponse)
 		log.Printf("[麻将] 进入等待响应阶段，有%d个玩家可响应", len(g.pendingActions))
+		return false, nil
 	} else {
-		// 无人响应，下一玩家摸牌
-		g.advanceToNextPlayer()
+		return true, nil
 	}
-
-	return false, nil
 }
 
 func (g *MahjongGame) handleSelfDrawWin(seat int) (bool, error) {
@@ -367,6 +521,8 @@ func (g *MahjongGame) resolvePending() (bool, error) {
 
 	// 所有人都 pass
 	if bestAction == ActionPass || bestSeat == -1 {
+		// 停止等待响应定时器
+		g.stopPendingTimer()
 		g.advanceToNextPlayer()
 		return false, nil
 	}
@@ -566,7 +722,7 @@ func (g *MahjongGame) checkPendingActions() {
 	}
 }
 
-// advanceToNextPlayer 推进到下一个玩家，自动摸牌
+// advanceToNextPlayer 推进到下一个玩家，自动摸牌并启动定时器
 func (g *MahjongGame) advanceToNextPlayer() {
 	g.currentSeat = (g.lastDiscardSeat + 1) % 4
 	g.lastDiscard = nil
@@ -580,9 +736,13 @@ func (g *MahjongGame) advanceToNextPlayer() {
 
 	// 自动摸牌
 	if err := g.drawTile(g.currentSeat); err != nil {
-		log.Printf("[麻将] 摸牌失败: %v", err)
+		log.Printf("[麻将] 摸牌失败：%v", err)
 		g.handleDrawGame()
+		return
 	}
+
+	// 启动新回合的出牌定时器
+	g.startTurnTimer()
 }
 
 // drawTile 摸牌

@@ -346,7 +346,7 @@
                     class="ml-4 bg-gray-700 hover:bg-gray-600 px-4 py-1 rounded-lg text-sm transition-all">
                     📋 复制
                 </button>
-                <button onclick="console.log('按钮被点击'); addBot();"
+                <button onclick="addBot();"
                     class="ml-4 bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-700 hover:to-red-700 px-4 py-1 rounded-lg text-sm transition-all">
                     🤖 添加机器人
                 </button>
@@ -384,6 +384,10 @@
                             <div class="flex justify-between items-center">
                                 <span class="text-gray-400">当前回合</span>
                                 <span id="currentTurn" class="font-bold"></span>
+                            </div>
+                            <div class="flex justify-between items-center">
+                                <span class="text-gray-400">倒计时</span>
+                                <span id="countdown" class="font-bold text-red-400"></span>
                             </div>
                             <div class="flex justify-between items-center">
                                 <span class="text-gray-400">庄家</span>
@@ -479,6 +483,7 @@
         let selectedTiles = []; // [{index, tile}]
         let isProcessingAction = false;
         let isGameOverShown = false; // 防止重复显示游戏结束弹窗
+        let countdownInterval = null; // 倒计时定时器
 
         // ==================== 机器人管理 ====================
         let bots = []; // 存储机器人连接
@@ -499,7 +504,7 @@
                 this.ws = new WebSocket(wsUrl);
 
                 this.ws.onopen = () => {
-                    console.log(`[Bot ${this.name}] 已连接`);
+                    // console.log(`[Bot ${this.name}] 已连接`);
                 };
 
                 this.ws.onmessage = (event) => {
@@ -507,27 +512,27 @@
                         const msg = JSON.parse(event.data);
                         this.handleMessage(msg);
                     } catch (e) {
-                        console.error(`[Bot ${this.name}] 消息解析错误:`, e);
+                        // console.error(`[Bot ${this.name}] 消息解析错误:`, e);
                     }
                 };
 
                 this.ws.onclose = () => {
-                    console.log(`[Bot ${this.name}] 连接已关闭`);
+                    // console.log(`[Bot ${this.name}] 连接已关闭`);
                 };
 
                 this.ws.onerror = (err) => {
-                    console.error(`[Bot ${this.name}] WebSocket错误:`, err);
+                    // console.error(`[Bot ${this.name}] WebSocket错误:`, err);
                 };
             }
 
             send(msg) {
-                console.log(`[Bot ${this.name}] send() 被调用, WebSocket状态:`, this.ws?.readyState);
+                // console.log(`[Bot ${this.name}] send() 被调用, WebSocket状态:`, this.ws?.readyState);
                 if (this.ws && this.ws.readyState === WebSocket.OPEN) {
                     const jsonMsg = JSON.stringify(msg);
-                    console.log(`[Bot ${this.name}] 发送消息:`, jsonMsg);
+                    // console.log(`[Bot ${this.name}] 发送消息:`, jsonMsg);
                     this.ws.send(jsonMsg);
                 } else {
-                    console.error(`[Bot ${this.name}] WebSocket未连接，无法发送消息`);
+                    // console.error(`[Bot ${this.name}] WebSocket未连接，无法发送消息`);
                 }
             }
 
@@ -549,17 +554,25 @@
                             data: { ready: true }
                         }
                     };
-                    console.log(`[Bot ${this.name}] 发送准备消息:`, msg);
-                    console.log(`[Bot ${this.name}] WebSocket状态:`, this.ws?.readyState);
+                    // console.log(`[Bot ${this.name}] 发送准备消息:`, msg);
+                    // console.log(`[Bot ${this.name}] WebSocket状态:`, this.ws?.readyState);
                     this.send(msg);
-                    console.log(`[Bot ${this.name}] 已准备`);
+                    // console.log(`[Bot ${this.name}] 已准备`);
                 }, 500 + Math.random() * 1000);
             }
 
             // 机器人响应逻辑
             handleResponse(availableActions) {
-                console.log(`[Bot ${this.name}] 可用操作:`, availableActions);
-                console.log(`[Bot ${this.name}] gameState:`, this.gameState);
+                // 屏蔽机器人事件打印，只保留关键操作日志
+                // console.log(`[Bot ${this.name}] 可用操作:`, availableActions);
+                // console.log(`[Bot ${this.name}] gameState:`, this.gameState);
+
+                // 严格检查：必须是等待响应阶段
+                const phase = this.gameState.phase || '';
+                if (phase !== 'pending') {
+                    // console.log(`[Bot ${this.name}] 不是等待响应阶段，当前阶段:`, phase);
+                    return;
+                }
 
                 // 简单策略：优先级 胡 > 杠 > 碰 > 吃 > 过
                 const priority = ['win', 'kong', 'pong', 'chow', 'pass'];
@@ -576,13 +589,13 @@
                                     // 随机选择一种吃法
                                     const selectedIndex = Math.floor(Math.random() * chowOptions.length);
                                     cardData = chowOptions[selectedIndex];
-                                    console.log(`[Bot ${this.name}] 选择吃牌组合:`, cardData);
+                                    // console.log(`[Bot ${this.name}] 选择吃牌组合:`, cardData);
                                 }
                             } else if (action === 'kong') {
                                 const kongOptions = this.gameState.kong_options || [];
                                 if (kongOptions.length > 0) {
                                     cardData = kongOptions[0].tile;
-                                    console.log(`[Bot ${this.name}] 选择杠牌:`, cardData);
+                                    // console.log(`[Bot ${this.name}] 选择杠牌:`, cardData);
                                 }
                             }
 
@@ -594,7 +607,7 @@
                                     card: cardData
                                 }
                             });
-                            console.log(`[Bot ${this.name}] 响应操作:`, action, cardData ? `(card: ${JSON.stringify(cardData)})` : '');
+                            // console.log(`[Bot ${this.name}] 响应操作:`, action, cardData ? `(card: ${JSON.stringify(cardData)})` : '');
                         }, 1000 + Math.random() * 1000);
                         return;
                     }
@@ -609,36 +622,42 @@
                             action: 'pass'
                         }
                     });
-                    console.log(`[Bot ${this.name}] 默认选择: 过`);
+                    // console.log(`[Bot ${this.name}] 默认选择: 过`);
                 }, 1000 + Math.random() * 1000);
             }
 
             // 机器人出牌逻辑
             playTurn() {
-                console.log(`[Bot ${this.name}] playTurn被调用, gameState:`, this.gameState);
+                // console.log(`[Bot ${this.name}] playTurn被调用, gameState:`, this.gameState);
 
                 if (!this.gameState) {
-                    console.log(`[Bot ${this.name}] 没有gameState，不出牌`);
+                    // console.log(`[Bot ${this.name}] 没有gameState，不出牌`);
                     return;
                 }
 
-                // 检查是否是该我出牌（current 是玩家ID）
+                // 严格检查：必须是出牌阶段且是该我出牌
+                const phase = this.gameState.phase || '';
                 const currentPlayer = this.gameState.current;
                 const isMyTurn = currentPlayer === this.playerID;
 
-                console.log(`[Bot ${this.name}] current:`, currentPlayer, 'myID:', this.playerID, 'isMyTurn:', isMyTurn);
+                // console.log(`[Bot ${this.name}] phase:`, phase, 'current:', currentPlayer, 'myID:', this.playerID, 'isMyTurn:', isMyTurn);
+
+                if (phase !== 'play') {
+                    // console.log(`[Bot ${this.name}] 不是出牌阶段，当前阶段:`, phase);
+                    return;
+                }
 
                 if (!isMyTurn) {
-                    console.log(`[Bot ${this.name}] 不是该我出牌`);
+                    // console.log(`[Bot ${this.name}] 不是该我出牌`);
                     return;
                 }
 
                 setTimeout(() => {
                     // 我的手牌在 my_hand 字段
                     const myHand = this.gameState.my_hand || [];
-                    console.log(`[Bot ${this.name}] 我的手牌:`, myHand);
+                    // console.log(`[Bot ${this.name}] 我的手牌:`, myHand);
                     if (myHand.length === 0) {
-                        console.log(`[Bot ${this.name}] 没有手牌，不出牌`);
+                        // console.log(`[Bot ${this.name}] 没有手牌，不出牌`);
                         return;
                     }
 
@@ -654,14 +673,26 @@
                             card: tile
                         }
                     });
-                    console.log(`[Bot ${this.name}] 出牌:`, tile);
+                    // console.log(`[Bot ${this.name}] 出牌:`, tile);
                 }, 1000 + Math.random() * 2000);
             }
 
             handleMessage(msg) {
+                // console.log(`[Bot ${this.name}] 收到完整消息:`, msg);
+
+                // 添加错误处理
+                if (msg.type === 'error') {
+                    const errMsg = msg.data?.message || msg.data?.Message || '未知错误';
+                    // console.error(`[Bot ${this.name}] ❌ 收到错误消息:`, errMsg);
+                    // console.error(`[Bot ${this.name}] 错误详情:`, msg.data);
+                    return;
+                }
+
                 if (msg.type === 'broadcast' && msg.data) {
                     const event = msg.data.event;
                     const content = msg.data.content;
+
+                    // console.log(`[Bot ${this.name}] 处理广播事件:`, event, '内容:', content);
 
                     switch (event) {
                         case 'room_state_changed':
@@ -676,25 +707,31 @@
                                     this.mySeat = me.seat_number;
                                 }
                             }
-                            console.log(`[Bot ${this.name}] 游戏开始，座位:`, this.mySeat);
+                            // console.log(`[Bot ${this.name}] 游戏开始，座位:`, this.mySeat);
                             break;
 
                         case 'state_update':
                             this.gameState = content;
 
-                            // 检查是否有可用操作
+                            // 检查游戏阶段和可用操作
                             const availableActions = content.available_actions || [];
-                            if (availableActions.length > 0 && availableActions[0] !== 'discard') {
-                                // 有响应操作（吃、碰、杠、胡等）
+                            const phase = content.phase || '';
+
+                            // console.log(`[Bot ${this.name}] state_update - phase:`, phase, 'actions:', availableActions);
+
+                            if (phase === 'pending' && availableActions.length > 0) {
+                                // 等待响应阶段：处理吃、碰、杠、胡等响应操作
                                 this.handleResponse(availableActions);
-                            } else {
-                                // 出牌阶段
+                            } else if (phase === 'play' && availableActions.includes('discard')) {
+                                // 出牌阶段：执行出牌操作
                                 this.playTurn();
                             }
+                            // 其他情况（如等待阶段或没有可用操作）不做任何事
                             break;
 
                         case 'game_over':
-                            console.log(`[Bot ${this.name}] 游戏结束`);
+                            // console.log(`[Bot ${this.name}] 🎉 收到游戏结束消息:`, content);
+                            // console.log(`[Bot ${this.name}] 准备自动重新准备...`);
                             setTimeout(() => {
                                 this.ready(); // 游戏结束后自动准备
                             }, 2000);
@@ -712,7 +749,7 @@
 
         // 添加机器人
         function addBot() {
-            console.log('[addBot] 点击添加机器人, currentRoomID:', currentRoomID);
+            // console.log('[addBot] 点击添加机器人, currentRoomID:', currentRoomID);
             if (!currentRoomID) {
                 alert('请先创建或加入房间');
                 return;
@@ -720,14 +757,14 @@
 
             const botNames = ['机器人东', '机器人南', '机器人西', '机器人北'];
             const botName = botNames[bots.length % botNames.length] + '_' + Math.floor(Math.random() * 1000);
-            console.log('[addBot] 创建机器人:', botName);
+            // console.log('[addBot] 创建机器人:', botName);
 
             const bot = new MahjongBot(botName);
             bot.connect();
 
             // 等待连接成功后加入房间
             const checkConnection = () => {
-                console.log('[addBot] 检查连接状态:', bot.ws?.readyState);
+                // console.log('[addBot] 检查连接状态:', bot.ws?.readyState);
                 if (bot.ws?.readyState === WebSocket.OPEN) {
                     bot.joinRoom(currentRoomID);
                     bots.push(bot);
@@ -762,6 +799,50 @@
         };
 
         // ==================== 工具函数 ====================
+
+        // 启动倒计时
+        function startCountdown(seconds, isPending = false) {
+            stopCountdown();
+            const countdownEl = document.getElementById('countdown');
+            if (!countdownEl) return;
+
+            let remaining = seconds;
+            updateCountdownDisplay(remaining, isPending);
+
+            countdownInterval = setInterval(() => {
+                remaining--;
+                updateCountdownDisplay(remaining, isPending);
+
+                if (remaining <= 0) {
+                    stopCountdown();
+                }
+            }, 1000);
+        }
+
+        // 停止倒计时
+        function stopCountdown() {
+            if (countdownInterval) {
+                clearInterval(countdownInterval);
+                countdownInterval = null;
+            }
+            const countdownEl = document.getElementById('countdown');
+            if (countdownEl) {
+                countdownEl.textContent = '';
+            }
+        }
+
+        // 更新倒计时显示
+        function updateCountdownDisplay(seconds, isPending) {
+            const countdownEl = document.getElementById('countdown');
+            if (!countdownEl) return;
+
+            const colorClass = seconds <= 5 ? 'text-red-600 animate-pulse' :
+                seconds <= 10 ? 'text-orange-500' :
+                    isPending ? 'text-purple-400' : 'text-red-400';
+
+            const label = isPending ? '等待响应' : '出牌';
+            countdownEl.innerHTML = `<span class="${colorClass}">${seconds}秒 (${label})</span>`;
+        }
 
         function tileToStr(tile) {
             if (!tile) return '?';
@@ -862,6 +943,7 @@
             gameState = null;
             mySeat = -1;
             selectedTiles = [];
+            stopCountdown();
             // 清理机器人
             clearBots();
             document.getElementById('connectPanel').classList.remove('hidden');
@@ -874,9 +956,13 @@
         // ==================== 消息处理 ====================
 
         function handleMessage(msg) {
+            console.log('📥 handleMessage 收到完整消息:', msg);  // 添加调试日志
+
             if (msg.type === 'error') {
                 const errMsg = msg.data?.message || msg.data?.Message || '未知错误';
-                log(`❌ ${errMsg}`, 'text-red-400');
+                const errCode = msg.data?.code || '';
+                log(`❌ ${errMsg} ${errCode ? `(错误码: ${errCode})` : ''}`, 'text-red-400');
+                console.error('详细错误信息:', msg.data);
                 if (isCreating) {
                     isCreating = false;
                     document.getElementById('createBtn').disabled = false;
@@ -888,6 +974,9 @@
                 const data = msg.data || {};
                 const event = data.event;
                 const content = data.content || {};
+
+                console.log('📥 处理广播事件:', event, '内容:', content);  // 添加调试日志
+                console.log('📥 完整广播数据:', JSON.stringify(data, null, 2)); // 详细日志
 
                 switch (event) {
                     case 'room_state_changed':
@@ -906,13 +995,15 @@
                         if (content.game_over && !isGameOverShown) {
                             isGameOverShown = true;
                             showGameOver(content);
+                            stopCountdown();
                         }
                         break;
                     case 'game_over':
-                        // 如果 state_update 已经处理过，这里不再显示
-                        if (!isGameOverShown && gameState) {
+                        console.log('收到 game_over 事件:', content);
+                        if (!isGameOverShown) {
                             isGameOverShown = true;
-                            showGameOver(gameState);
+                            showGameOver(content);
+                            stopCountdown();
                         }
                         break;
                     case 'chat':
@@ -966,9 +1057,12 @@
             } else if (state === 'waiting') {
                 document.getElementById('readyPanel').classList.remove('hidden');
                 document.getElementById('gameArea').classList.add('hidden');
+                // 重置游戏相关状态
                 gameState = null;
                 mySeat = -1;
                 selectedTiles = [];
+                isGameOverShown = false;
+                stopCountdown();
             }
 
             if (message) log(message, 'text-blue-300');
@@ -1030,6 +1124,18 @@
             // 游戏信息
             const phaseText = { play: '出牌阶段', pending: '等待响应' }[phase] || phase;
             document.getElementById('phase').textContent = phaseText;
+
+            // 启动倒计时
+            const isMyTurn = currentSeat === mySeat && phase === 'play';
+            const isPendingPhase = phase === 'pending';
+
+            if (isMyTurn) {
+                startCountdown(30, false); // 出牌超时 30 秒
+            } else if (isPendingPhase && availableActions.includes('pass')) {
+                startCountdown(10, true); // 等待响应超时 10 秒
+            } else {
+                stopCountdown();
+            }
 
             const currentPlayerName = players[currentSeat]?.player_id || '';
             const turnEl = document.getElementById('currentTurn');
@@ -1385,10 +1491,11 @@
             });
         }
 
-        // 显示游戏结束弹窗
         function showGameOver(state) {
             const winner = state.winner || '未知';
             log(`🏆 游戏结束！${winner}`, 'text-yellow-400');
+
+            // 显示游戏结束弹窗
             setTimeout(() => {
                 const result = state.win_result;
                 if (result) {
@@ -1398,6 +1505,19 @@
                 } else {
                     alert(`🎉 游戏结束！\n\n${winner}`);
                 }
+
+                // 游戏结束后跳转回准备页面
+                setTimeout(() => {
+                    document.getElementById('gameArea').classList.add('hidden');
+                    document.getElementById('readyPanel').classList.remove('hidden');
+                    // 重置游戏相关状态
+                    gameState = null;
+                    mySeat = -1;
+                    selectedTiles = [];
+                    isGameOverShown = false;
+                    stopCountdown();
+                    log('🔄 返回准备页面，可再次开始游戏', 'text-blue-300');
+                }, 500);
             }, 300);
         }
 

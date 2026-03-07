@@ -527,34 +527,15 @@ func (r *Room) ProcessGameAction(playerID string, data types.GameActionData) err
 
 	log.Printf("处理卡牌指令 [房间：%s, 玩家：%s, action：%s, 回合是否结束：%v, 游戏是否结束：%v]", r.ID, playerID, action.Type, turnEnded, r.Game.IsGameOver())
 
-	r.broadcastState() // 出牌后立即全房间广播新状态
+	r.broadcastState() // 广播最新的游戏状态
 
-	// 检查游戏是否结束（玩家出完牌）
+	// 检查游戏是否结束
 	if r.Game.IsGameOver() {
-		winner := r.Game.Winner()
-		log.Printf("游戏结束，获胜者: %s", winner)
-
-		// 1. 先广播 game_over 事件
-		r.Broadcast(types.Message{
-			Type: types.Broadcast,
-			Data: types.BroadcastData{Event: types.GameFinished, Content: map[string]string{"winner": winner}},
-		})
-
-		// 2. 重置房间状态为 waiting
-		r.State = types.RoomWaiting
-		// 清除准备状态
-		for playerID := range r.Ready {
-			r.Ready[playerID] = false
+		if err := r.handleGameEnd(); err != nil {
+			log.Printf("游戏结束处理失败 [房间：%s]: %v", r.ID, err)
+			return fmt.Errorf("游戏结束处理失败: %w", err)
 		}
-
-		// 3. 构建并广播 room_state_changed 事件
-		r.broadcastRoomStateWithMessage(fmt.Sprintf("游戏结束！获胜者：%s", winner))
 		return nil
-	}
-
-	if turnEnded {
-		r.Game.AdvanceTurn()
-		r.broadcastState() // 回合切换后再广播一次
 	}
 	return nil
 }
@@ -595,6 +576,34 @@ func (r *Room) startGame() error {
 	r.BroadcastPersonalized(types.GameStarted, func(playerID string) interface{} {
 		return r.Game.GetStateForPlayer(playerID)
 	})
+
+	// 设置游戏超时回调（游戏层会自己管理定时器）
+	r.setupGameTimers()
+
+	return nil
+}
+
+// handleGameEnd 处理游戏结束逻辑（统一游戏结束处理）
+func (r *Room) handleGameEnd() error {
+	winner := r.Game.Winner()
+	log.Printf("游戏结束，获胜者: %s", winner)
+
+	// 1. 先广播 game_over 事件
+	r.Broadcast(types.Message{
+		Type: types.Broadcast,
+		Data: types.BroadcastData{Event: types.GameFinished, Content: map[string]string{"winner": winner}},
+	})
+
+	// 2. 重置房间状态为 waiting
+	r.State = types.RoomWaiting
+	// 清除准备状态
+	for playerID := range r.Ready {
+		r.Ready[playerID] = false
+	}
+
+	// 3. 构建并广播最终的 room_state_changed 事件
+	r.broadcastRoomStateWithMessage(fmt.Sprintf("游戏结束！获胜者：%s", winner))
+
 	return nil
 }
 
