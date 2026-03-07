@@ -31,6 +31,8 @@
             border-radius: 6px;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
             border: 2px solid rgba(255, 255, 255, 0.2);
+            padding: 0;
+            line-height: 1;
         }
 
         .tile:hover {
@@ -82,15 +84,15 @@
 
         /* 小尺寸麻将牌 */
         .tile-sm {
-            width: 32px;
-            height: 44px;
-            font-size: 0.7rem;
+            width: clamp(28px, 4vw, 40px);
+            height: clamp(38px, 5.5vw, 56px);
+            font-size: clamp(0.75rem, 1.2vw, 1.1rem);
         }
 
         .tile-md {
-            width: 42px;
-            height: 58px;
-            font-size: 0.9rem;
+            width: clamp(36px, 5vw, 52px);
+            height: clamp(50px, 7vw, 72px);
+            font-size: clamp(1rem, 1.5vw, 1.4rem);
         }
 
         /* 当前回合动画 */
@@ -263,15 +265,29 @@
         /* 响应式调整 */
         @media (max-width: 1024px) {
             .tile-md {
-                width: 36px;
-                height: 50px;
-                font-size: 0.8rem;
+                width: clamp(32px, 6vw, 44px);
+                height: clamp(44px, 8vw, 60px);
+                font-size: clamp(0.9rem, 2vw, 1.2rem);
             }
 
             .tile-sm {
-                width: 28px;
-                height: 38px;
-                font-size: 0.65rem;
+                width: clamp(24px, 4vw, 32px);
+                height: clamp(32px, 5.5vw, 44px);
+                font-size: clamp(0.65rem, 1.5vw, 0.9rem);
+            }
+        }
+
+        @media (max-width: 640px) {
+            .tile-md {
+                width: clamp(28px, 8vw, 36px);
+                height: clamp(38px, 11vw, 50px);
+                font-size: clamp(0.8rem, 2.5vw, 1rem);
+            }
+
+            .tile-sm {
+                width: clamp(20px, 5vw, 28px);
+                height: clamp(28px, 7vw, 38px);
+                font-size: clamp(0.6rem, 2vw, 0.8rem);
             }
         }
     </style>
@@ -462,6 +478,7 @@
         let mySeat = -1;
         let selectedTiles = []; // [{index, tile}]
         let isProcessingAction = false;
+        let isGameOverShown = false; // 防止重复显示游戏结束弹窗
 
         // ==================== 机器人管理 ====================
         let bots = []; // 存储机器人连接
@@ -880,24 +897,23 @@
                         log('🎮 游戏开始！准备好了吗？', 'text-green-400');
                         document.getElementById('readyPanel').classList.add('hidden');
                         document.getElementById('gameArea').classList.remove('hidden');
+                        isGameOverShown = false; // 重置游戏结束标记
                         updateGameState(content);
                         break;
                     case 'state_update':
                         updateGameState(content);
+                        // 检查游戏是否结束（优先使用 state_update 中的数据）
+                        if (content.game_over && !isGameOverShown) {
+                            isGameOverShown = true;
+                            showGameOver(content);
+                        }
                         break;
                     case 'game_over':
-                        const winner = content.winner || '未知';
-                        log(`🏆 游戏结束！${winner}`, 'text-yellow-400');
-                        setTimeout(() => {
-                            const result = gameState?.win_result;
-                            if (result) {
-                                const fanList = result.fan_list || [];
-                                const fanText = fanList.map(f => `${f.name}(${f.fan}番)`).join('、');
-                                alert(`🎉 游戏结束！\n\n${winner}\n\n番种：${fanText}\n总计：${result.total_fan}番`);
-                            } else {
-                                alert(`🎉 游戏结束！\n\n${winner}`);
-                            }
-                        }, 300);
+                        // 如果 state_update 已经处理过，这里不再显示
+                        if (!isGameOverShown && gameState) {
+                            isGameOverShown = true;
+                            showGameOver(gameState);
+                        }
                         break;
                     case 'chat':
                         addChat(content.player_id, content.content);
@@ -1367,6 +1383,22 @@
             }).catch(() => {
                 alert('❌ 复制失败，请手动复制：' + currentRoomID);
             });
+        }
+
+        // 显示游戏结束弹窗
+        function showGameOver(state) {
+            const winner = state.winner || '未知';
+            log(`🏆 游戏结束！${winner}`, 'text-yellow-400');
+            setTimeout(() => {
+                const result = state.win_result;
+                if (result) {
+                    const fanList = result.fan_list || [];
+                    const fanText = fanList.map(f => `${f.name}(${f.fan}番)`).join('、');
+                    alert(`🎉 游戏结束！\n\n${winner}\n\n番种：${fanText}\n总计：${result.total_fan}番`);
+                } else {
+                    alert(`🎉 游戏结束！\n\n${winner}`);
+                }
+            }, 300);
         }
 
         // 页面加载完成

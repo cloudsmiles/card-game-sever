@@ -17,11 +17,11 @@ const (
 // 动作类型
 const (
 	ActionDiscard = "discard" // 出牌
-	ActionChow    = "chow"   // 吃
-	ActionPong    = "pong"   // 碰
-	ActionKong    = "kong"   // 杠
-	ActionWin     = "win"    // 胡牌
-	ActionPass    = "pass"   // 过
+	ActionChow    = "chow"    // 吃
+	ActionPong    = "pong"    // 碰
+	ActionKong    = "kong"    // 杠
+	ActionWin     = "win"     // 胡牌
+	ActionPass    = "pass"    // 过
 )
 
 // 动作优先级：胡 > 杠 > 碰 > 吃
@@ -65,11 +65,11 @@ type MahjongGame struct {
 	phase string // 游戏阶段
 
 	// pending 状态
-	lastDiscard     *Tile                    // 最后打出的牌
-	lastDiscardSeat int                      // 最后出牌的座位
-	pendingActions  map[int][]string         // 座位 -> 可执行的操作列表
+	lastDiscard      *Tile                    // 最后打出的牌
+	lastDiscardSeat  int                      // 最后出牌的座位
+	pendingActions   map[int][]string         // 座位 -> 可执行的操作列表
 	pendingResponses map[int]*PendingResponse // 座位 -> 已选择的响应
-	pendingChowData map[int]interface{}      // 吃牌时的额外数据
+	pendingChowData  map[int]interface{}      // 吃牌时的额外数据
 
 	gameOver  bool
 	winner    string
@@ -80,7 +80,7 @@ func New() interfaces.Game {
 	return &MahjongGame{}
 }
 
-func (g *MahjongGame) ID() string      { return "mahjong" }
+func (g *MahjongGame) ID() string       { return "mahjong" }
 func (g *MahjongGame) MaxPlayers() int  { return 4 }
 func (g *MahjongGame) MinPlayers() int  { return 4 }
 func (g *MahjongGame) IsGameOver() bool { return g.gameOver }
@@ -231,9 +231,9 @@ func (g *MahjongGame) handleSelfDrawWin(seat int) (bool, error) {
 	}
 	fans, total := CalculateFan(ctx)
 
-	if total < 8 {
-		return false, fmt.Errorf("番数不足8番（当前%d番），不能胡牌", total)
-	}
+	// if total < 8 {
+	// 	return false, fmt.Errorf("番数不足8番（当前%d番），不能胡牌", total)
+	// }
 
 	g.winResult = &WinResult{
 		WinnerSeat: seat,
