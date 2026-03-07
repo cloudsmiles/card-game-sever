@@ -134,7 +134,12 @@ func (g *DurianGame) ProcessAction(playerID string, action interface{}) (bool, e
 
 	// 处理确认继续（在等待确认阶段，任何玩家都可以操作）
 	if act.Type == "continue" {
-		return g.processContinue(playerID)
+		turnEnded, err := g.processContinue(playerID)
+		// 如果回合结束，游戏层自己推进
+		if turnEnded {
+			g.AdvanceTurn()
+		}
+		return turnEnded, err
 	}
 
 	// 其他操作需要是当前回合玩家
@@ -142,14 +147,24 @@ func (g *DurianGame) ProcessAction(playerID string, action interface{}) (bool, e
 		return false, fmt.Errorf("不是你的回合，当前轮到 %s", g.CurrentTurn())
 	}
 
+	var turnEnded bool
+	var err error
+
 	switch act.Type {
 	case "take_order":
-		return g.processTakeOrder(playerID, act)
+		turnEnded, err = g.processTakeOrder(playerID, act)
 	case "ring_bell":
-		return g.processRingBell(playerID)
+		turnEnded, err = g.processRingBell(playerID)
 	default:
 		return false, fmt.Errorf("未知的行动类型: %s，支持 take_order、ring_bell 或 continue", act.Type)
 	}
+
+	// 如果回合结束，游戏层自己推进
+	if turnEnded {
+		g.AdvanceTurn()
+	}
+
+	return turnEnded, err
 }
 
 // GetState 返回公共游戏状态（不含任何玩家私密信息）
@@ -314,7 +329,7 @@ func (g *DurianGame) processTakeOrder(playerID string, act interfaces.Action) (b
 	// 清空翻开的牌
 	g.flippedCard = nil
 
-	// 返回 true，由 room.go 调用 AdvanceTurn() 切换到下一位玩家
+	// 返回 true，表示回合结束（由 ProcessAction 统一调用 AdvanceTurn）
 	return true, nil
 }
 
@@ -392,7 +407,7 @@ func (g *DurianGame) processSwapOrder(playerID string, act interfaces.Action) (b
 	g.flippedCard = nil
 	g.waitingForSwapOrder = false
 
-	// 返回 true，结束当前玩家回合
+	// 返回 true，表示回合结束（由 ProcessAction 统一调用 AdvanceTurn）
 	return true, nil
 }
 
@@ -428,7 +443,8 @@ func (g *DurianGame) processContinue(playerID string) (bool, error) {
 		g.waitingForContinue = nil
 		g.pendingNextRoundStart = 0
 
-		// 返回 true 表示回合结束，这样 room.go 会调用 AdvanceTurn 并广播状态
+		// 返回 true 表示回合结束（由 ProcessAction 统一调用 AdvanceTurn）
+		// 但实际的新回合起始玩家已在 startNewRound 中设置
 		return true, nil
 	}
 
@@ -492,8 +508,8 @@ func (g *DurianGame) processRingBell(playerID string) (bool, error) {
 	// 进入等待确认阶段
 	g.phase = "waiting_continue"
 
-	// ring_bell 后内部已完成轮次处理，返回 false 告知 room.go 不要再调用 AdvanceTurn
-	return false, nil
+	// 摇铃后回合结束，但新回合的起始玩家将在 continue 阶段处理
+	return true, nil
 }
 
 // determineWinner 确定获胜者（愤怒分最少的玩家，并列则共同获胜）
