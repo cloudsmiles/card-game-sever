@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	"card-game-server/internal/game/interfaces"
+	"card-game-server/backend/internal/game/interfaces"
 )
 
 type Card struct {

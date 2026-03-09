@@ -4,7 +4,7 @@ import (
 	"log"
 	"net/http"
 
-	"card-game-server/internal/connection"
+	"card-game-server/backend/internal/connection"
 )
 
 func main() {

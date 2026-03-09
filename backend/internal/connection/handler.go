@@ -6,8 +6,8 @@ import (
 	"log"
 	"net/http"
 
-	"card-game-server/internal/room"
-	"card-game-server/internal/types"
+	"card-game-server/backend/internal/room"
+	"card-game-server/backend/internal/types"
 
 	"github.com/gorilla/websocket"
 )

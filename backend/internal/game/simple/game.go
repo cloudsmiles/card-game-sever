@@ -1,7 +1,7 @@
 package simple
 
 import (
-	"card-game-server/internal/game/interfaces"
+	"card-game-server/backend/internal/game/interfaces"
 	"fmt"
 )
 

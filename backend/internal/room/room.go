@@ -1,9 +1,9 @@
 package room
 
 import (
-	"card-game-server/internal/game"
-	"card-game-server/internal/game/interfaces"
-	"card-game-server/internal/types"
+	"card-game-server/backend/internal/game"
+	"card-game-server/backend/internal/game/interfaces"
+	"card-game-server/backend/internal/types"
 	"encoding/json"
 	"fmt"
 	"log"

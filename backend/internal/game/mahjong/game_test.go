@@ -3,7 +3,7 @@ package mahjong
 import (
 	"testing"
 
-	"card-game-server/internal/game/interfaces"
+	"card-game-server/backend/internal/game/interfaces"
 )
 
 // ==================== tile_test ====================

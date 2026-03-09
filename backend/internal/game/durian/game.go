@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"card-game-server/internal/game/interfaces"
+	"card-game-server/backend/internal/game/interfaces"
 )
 
 // DurianGame 榴莲忘返游戏，实现 interfaces.Game 接口

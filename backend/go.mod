@@ -1,4 +1,4 @@
-module card-game-server
+module card-game-server/backend
 
 go 1.22
 

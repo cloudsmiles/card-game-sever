@@ -1,11 +1,11 @@
 package game
 
 import (
-	"card-game-server/internal/game/ddz"
-	"card-game-server/internal/game/durian"
-	"card-game-server/internal/game/interfaces"
-	"card-game-server/internal/game/mahjong"
-	"card-game-server/internal/game/simple"
+	"card-game-server/backend/internal/game/ddz"
+	"card-game-server/backend/internal/game/durian"
+	"card-game-server/backend/internal/game/interfaces"
+	"card-game-server/backend/internal/game/mahjong"
+	"card-game-server/backend/internal/game/simple"
 	"fmt"
 )
 
