@@ -1,0 +1,300 @@
+/* 宝石蓝红主题样式 - 正常页面效果 */
+
+/* 核心色彩体系 - 宝石蓝和宝石红 */
+:root {
+  /* 宝石蓝主色 */
+  --gem-blue-primary: #0F52BA;
+  --gem-blue-light: #2E7BD0;
+  --gem-blue-dark: #082567;
+  --gem-blue-glow: #4A90D9;
+
+  /* 宝石红主色 */
+  --gem-red-primary: #E0115F;
+  --gem-red-light: #FF2D7A;
+  --gem-red-dark: #9B111E;
+  --gem-red-glow: #FF6B9D;
+
+  /* 中性色 */
+  --neutral-light: #F5F5F5;
+  --neutral-medium: #E0E0E0;
+  --neutral-dark: #424242;
+  --neutral-text: #333333;
+
+  /* 白色和背景 */
+  --white: #FFFFFF;
+  --bg-light: #FAFAFA;
+  --bg-card: #FFFFFF;
+
+  /* 阴影 */
+  --shadow-light: rgba(0, 0, 0, 0.1);
+  --shadow-medium: rgba(0, 0, 0, 0.15);
+  --shadow-heavy: rgba(0, 0, 0, 0.2);
+
+  /* 渐变 */
+  --gradient-blue: linear-gradient(135deg, var(--gem-blue-primary) 0%, var(--gem-blue-light) 100%);
+  --gradient-red: linear-gradient(135deg, var(--gem-red-primary) 0%, var(--gem-red-light) 100%);
+  --gradient-mixed: linear-gradient(135deg, var(--gem-blue-primary) 0%, var(--gem-red-primary) 100%);
+}
+
+/* 正常页面背景 */
+.normal-world {
+  position: relative;
+  min-height: 100vh;
+  background: var(--bg-light);
+  overflow-x: hidden;
+}
+
+/* 页面容器 */
+.page-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+/* 卡片样式 */
+.gem-card {
+  background: var(--bg-card);
+  border-radius: 16px;
+  box-shadow: 0 4px 20px var(--shadow-medium);
+  padding: 24px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  border: 1px solid var(--neutral-medium);
+}
+
+.gem-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 30px var(--shadow-heavy);
+}
+
+/* 按钮样式 */
+.gem-button {
+  border: none;
+  border-radius: 12px;
+  padding: 14px 28px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 15px var(--shadow-medium);
+}
+
+.gem-button.primary {
+  background: var(--gradient-blue);
+  color: var(--white);
+}
+
+.gem-button.primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(15, 82, 186, 0.4);
+}
+
+.gem-button.secondary {
+  background: var(--gradient-red);
+  color: var(--white);
+}
+
+.gem-button.secondary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(224, 17, 95, 0.4);
+}
+
+.gem-button:active {
+  transform: translateY(0);
+}
+
+/* 输入框样式 */
+.gem-input {
+  border: 2px solid var(--neutral-medium);
+  border-radius: 12px;
+  padding: 14px 20px;
+  font-size: 16px;
+  background: var(--white);
+  transition: all 0.3s ease;
+  box-shadow: inset 0 2px 5px var(--shadow-light);
+}
+
+.gem-input:focus {
+  outline: none;
+  border-color: var(--gem-blue-primary);
+  box-shadow: 0 0 0 3px rgba(15, 82, 186, 0.2), inset 0 2px 5px var(--shadow-light);
+  transform: scale(1.01);
+}
+
+.gem-input.error {
+  border-color: var(--gem-red-primary);
+}
+
+.gem-input::placeholder {
+  color: #999;
+}
+
+/* 标题样式 */
+.gem-title {
+  background: var(--gradient-mixed);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  font-weight: bold;
+  letter-spacing: 0.5px;
+}
+
+.gem-title.blue {
+  background: var(--gradient-blue);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.gem-title.red {
+  background: var(--gradient-red);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* 文字颜色 */
+.text-primary {
+  color: var(--gem-blue-primary);
+}
+
+.text-secondary {
+  color: var(--gem-red-primary);
+}
+
+.text-dark {
+  color: var(--neutral-text);
+}
+
+.text-light {
+  color: var(--neutral-dark);
+}
+
+/* 边框样式 */
+.gem-border {
+  border: 2px solid var(--gem-blue-primary);
+}
+
+.gem-border-red {
+  border: 2px solid var(--gem-red-primary);
+}
+
+/* 分割线 */
+.gem-divider {
+  height: 2px;
+  background: var(--gradient-mixed);
+  border: none;
+  border-radius: 1px;
+}
+
+/* 标签/徽章 */
+.gem-badge {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.gem-badge.blue {
+  background: rgba(15, 82, 186, 0.1);
+  color: var(--gem-blue-primary);
+  border: 1px solid var(--gem-blue-primary);
+}
+
+.gem-badge.red {
+  background: rgba(224, 17, 95, 0.1);
+  color: var(--gem-red-primary);
+  border: 1px solid var(--gem-red-primary);
+}
+
+/* 悬停效果 */
+.hover-lift {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.hover-lift:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 25px var(--shadow-heavy);
+}
+
+/* 加载动画 */
+.gem-spinner {
+  width: 40px;
+  height: 40px;
+  border: 4px solid var(--neutral-medium);
+  border-top-color: var(--gem-blue-primary);
+  border-right-color: var(--gem-red-primary);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 模态框背景 */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: var(--white);
+  border-radius: 20px;
+  padding: 30px;
+  max-width: 500px;
+  width: 90%;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+/* 游戏区域样式 */
+.game-area {
+  background: var(--white);
+  border-radius: 20px;
+  padding: 20px;
+  box-shadow: 0 8px 40px var(--shadow-heavy);
+  border: 3px solid;
+  border-image: var(--gradient-mixed) 1;
+}
+
+/* 响应式适配 */
+@media (max-width: 768px) {
+  .gem-card {
+    border-radius: 12px;
+    padding: 16px;
+  }
+
+  .gem-button {
+    padding: 12px 20px;
+    border-radius: 10px;
+    font-size: 14px;
+  }
+
+  .gem-input {
+    padding: 12px 16px;
+    font-size: 14px;
+  }
+
+  .page-container {
+    padding: 12px;
+  }
+}
+
+/* 性能优化 */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

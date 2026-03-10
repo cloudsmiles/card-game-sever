@@ -78,3 +78,24 @@ func (m *Manager) RemoveRoom(id string) {
 	defer m.mu.Unlock()
 	delete(m.rooms, id)
 }
+
+// GetAllRooms 获取所有房间列表
+func (m *Manager) GetAllRooms() []*Room {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	rooms := make([]*Room, 0, len(m.rooms))
+	for _, r := range m.rooms {
+		rooms = append(rooms, r)
+	}
+	return rooms
+}
+
+// RoomInfo 房间简要信息（用于HTTP API）
+type RoomInfo struct {
+	ID        string `json:"id"`
+	GameType  string `json:"game_type"`
+	State     string `json:"state"`
+	Players   int    `json:"players"`
+	MaxPlayers int   `json:"max_players"`
+}

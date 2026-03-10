@@ -1,17 +1,22 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { wsService } from '../services/WebSocketService';
 import { useApp } from '../context/AppContext';
-import { RoomInfo, GameType } from '../types/websocket';
+import { RoomInfo, RoomStateContent, GameType } from '../types/websocket';
+import { DDZGame, SimpleGame, MahjongGame } from '../components/game';
+
 const GameRoom: React.FC = () => {
     const { playerID } = useApp();
     const navigate = useNavigate();
     const { roomId } = useParams<{ roomId: string }>();
+    const [searchParams] = useSearchParams();
+    const gameTypeFromUrl = searchParams.get('gameType') as GameType || 'simple';
     const [roomInfo, setRoomInfo] = useState<RoomInfo | null>(null);
     const [gameState, setGameState] = useState<any>(null);
     const [isReady, setIsReady] = useState(false);
     const [gameLog, setGameLog] = useState<string[]>([]);
-    const [selectedCards, setSelectedCards] = useState<string[]>([]);
+    const [chatMessages, setChatMessages] = useState<{ player: string; content: string }[]>([]);
+    const [chatInput, setChatInput] = useState('');
 
     // 游戏类型信息
     const gameTypeInfo = {
@@ -19,6 +24,12 @@ const GameRoom: React.FC = () => {
         ddz: { name: '斗地主', icon: '🂠', maxPlayers: 3 },
         mahjong: { name: '麻将', icon: '🀀', maxPlayers: 4 },
         durian: { name: '榴莲忘返', icon: '🍈', maxPlayers: 4 }
+    };
+
+    // 添加日志
+    const addToLog = (message: string) => {
+        const timestamp = new Date().toLocaleTimeString();
+        setGameLog(prev => [...prev.slice(-49), `[${timestamp}] ${message}`]);
     };
 
     // 加入房间
@@ -32,6 +43,9 @@ const GameRoom: React.FC = () => {
                 wsService.on('roomStateChanged', handleRoomStateChange);
                 wsService.on('gameStateUpdate', handleGameStateUpdate);
                 wsService.on('error', handleError);
+                wsService.on('chatMessage', handleChatMessage);
+                wsService.on('gameStarted', handleGameStarted);
+                wsService.on('gameOver', handleGameOver);
 
                 addToLog(`加入房间 ${roomId}`);
             } catch (error) {
@@ -44,15 +58,58 @@ const GameRoom: React.FC = () => {
             wsService.off('roomStateChanged', handleRoomStateChange);
             wsService.off('gameStateUpdate', handleGameStateUpdate);
             wsService.off('error', handleError);
+            wsService.off('chatMessage', handleChatMessage);
+            wsService.off('gameStarted', handleGameStarted);
+            wsService.off('gameOver', handleGameOver);
         };
     }, [roomId, playerID, navigate]);
 
+    // 处理聊天消息
+    const handleChatMessage = (data: any) => {
+        const player = data.player_id || data.PlayerID || '未知玩家';
+        const content = data.content || data.Content || '';
+        setChatMessages(prev => [...prev.slice(-49), { player, content }]);
+    };
+
+    // 发送聊天消息
+    const handleSendChat = () => {
+        if (!chatInput.trim() || !roomId) return;
+        wsService.sendChat(chatInput);
+        setChatMessages(prev => [...prev.slice(-49), { player: playerID, content: chatInput }]);
+        setChatInput('');
+    };
+
     // 处理房间状态变化
-    const handleRoomStateChange = (data: any) => {
+    const handleRoomStateChange = (data: RoomStateContent) => {
         console.log('房间状态更新:', data);
-        if (data.room) {
-            setRoomInfo(data.room);
-            addToLog(`房间状态更新: ${data.room.players.length}/${data.room.max_players} 人`);
+
+        // 从 RoomStateContent 构建 RoomInfo
+        // data 直接就是 RoomStateContent 结构（根据 PROTOCOL.md）
+        const newRoomInfo: RoomInfo = {
+            id: data.room_id,
+            game_type: roomInfo?.game_type || gameTypeFromUrl || 'simple',
+            players: data.players.map(p => ({
+                id: p.player_id,
+                name: p.player_id,
+                is_ready: p.ready,
+                seat_index: p.seat_number
+            })),
+            max_players: Math.max(data.players.length, roomInfo?.max_players || 2),
+            status: data.state,
+            created_at: roomInfo?.created_at || new Date().toISOString()
+        };
+
+        setRoomInfo(newRoomInfo);
+        addToLog(`房间状态更新: ${data.players.length}/${newRoomInfo.max_players} 人`);
+
+        // 更新准备状态
+        const myPlayer = data.players.find(p => p.player_id === playerID);
+        if (myPlayer) {
+            setIsReady(myPlayer.ready);
+        }
+
+        if (data.message) {
+            addToLog(data.message);
         }
     };
 
@@ -66,21 +123,27 @@ const GameRoom: React.FC = () => {
     // 处理错误
     const handleError = (error: any) => {
         console.error('游戏错误:', error);
-        addToLog(`错误: ${error.message || '未知错误'}`);
+        const errorMsg = error?.message || error?.Message || error?.error || '未知错误';
+        addToLog(`错误: ${errorMsg}`);
     };
 
-    // 添加日志
-    const addToLog = (message: string) => {
-        const timestamp = new Date().toLocaleTimeString();
-        setGameLog(prev => [...prev.slice(-49), `[${timestamp}] ${message}`]);
+    // 处理游戏开始
+    const handleGameStarted = (_data: any) => {
+        addToLog('🎮 游戏开始！');
+    };
+
+    // 处理游戏结束
+    const handleGameOver = (data: any) => {
+        const winner = data.winner || data.Winner || '未知';
+        addToLog(`🏆 游戏结束！获胜者: ${winner}`);
+        alert(`游戏结束！获胜者：${winner}`);
     };
 
     // 准备/取消准备
     const toggleReady = () => {
         if (!roomInfo) return;
 
-        const action = isReady ? 'unready' : 'ready';
-        wsService.roomAction(action);
+        wsService.roomAction('ready', { ready: !isReady });
         setIsReady(!isReady);
         addToLog(isReady ? '取消准备' : '准备就绪');
     };
@@ -89,7 +152,6 @@ const GameRoom: React.FC = () => {
     const startGame = () => {
         if (!roomInfo) return;
 
-        // 检查是否所有玩家都已准备
         const allReady = roomInfo.players.every(p => p.is_ready);
         if (!allReady) {
             addToLog('请等待所有玩家准备就绪');
@@ -100,33 +162,26 @@ const GameRoom: React.FC = () => {
         addToLog('开始游戏');
     };
 
-    // 出牌
-    const playCard = (card: string) => {
-        if (!gameState?.current_turn || gameState.current_turn !== playerID) {
-            addToLog('不是你的回合');
-            return;
-        }
-
-        wsService.gameAction('play', { card });
-        setSelectedCards([]);
-        addToLog(`出牌: ${card}`);
-    };
-
-    // 选择卡牌
-    const selectCard = (card: string) => {
-        setSelectedCards(prev => {
-            if (prev.includes(card)) {
-                return prev.filter(c => c !== card);
-            } else {
-                return [...prev, card];
-            }
-        });
-    };
-
     // 离开房间
     const leaveRoom = () => {
         wsService.gameAction('leave');
         navigate('/');
+    };
+
+    // 渲染游戏组件
+    const renderGame = () => {
+        if (!gameState || !roomInfo) return null;
+
+        switch (roomInfo.game_type) {
+            case 'ddz':
+                return <DDZGame gameState={gameState} playerID={playerID} onLog={addToLog} />;
+            case 'simple':
+                return <SimpleGame gameState={gameState} playerID={playerID} onLog={addToLog} />;
+            case 'mahjong':
+                return <MahjongGame gameState={gameState} playerID={playerID} onLog={addToLog} />;
+            default:
+                return <SimpleGame gameState={gameState} playerID={playerID} onLog={addToLog} />;
+        }
     };
 
     if (!roomInfo) {
@@ -176,12 +231,11 @@ const GameRoom: React.FC = () => {
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     {/* 主游戏区域 */}
                     <div className="lg:col-span-2 space-y-6">
-                        {/* 游戏状态面板 */}
+                        {/* 等待开始面板 */}
                         {roomInfo.status === 'waiting' && (
                             <div className="bg-gray-800 rounded-2xl p-6 shadow-2xl">
                                 <h2 className="text-2xl font-bold mb-6 text-center">⏳ 等待开始</h2>
 
-                                {/* 准备按钮 */}
                                 <div className="text-center mb-6">
                                     <button
                                         onClick={toggleReady}
@@ -194,7 +248,6 @@ const GameRoom: React.FC = () => {
                                     </button>
                                 </div>
 
-                                {/* 开始游戏按钮 */}
                                 {roomInfo.players.every(p => p.is_ready) && roomInfo.players.length >= 2 && (
                                     <div className="text-center">
                                         <button
@@ -209,79 +262,11 @@ const GameRoom: React.FC = () => {
                         )}
 
                         {/* 游戏进行中 */}
-                        {roomInfo.status === 'playing' && gameState && (
-                            <div className="bg-gray-800 rounded-2xl p-6 shadow-2xl">
-                                <div className="flex justify-between items-center mb-6">
-                                    <div>
-                                        <span className="text-gray-400">当前回合：</span>
-                                        <span className="font-bold text-xl text-yellow-400">
-                                            {gameState.current_turn === playerID ? '你的回合' : gameState.current_turn}
-                                        </span>
-                                    </div>
-                                    {gameState.last_card && (
-                                        <div>
-                                            <span className="text-gray-400">上家出牌：</span>
-                                            <span className="font-mono text-3xl font-bold text-yellow-400">
-                                                {gameState.last_card}
-                                            </span>
-                                        </div>
-                                    )}
-                                </div>
-
-                                {/* 手牌区域 */}
-                                <div className="mb-6">
-                                    <div className="text-lg font-bold mb-3">你的手牌</div>
-                                    <div className="flex flex-wrap gap-2">
-                                        {(gameState.hands?.[playerID] || []).map((card: string, index: number) => (
-                                            <button
-                                                key={`${card}-${index}`}
-                                                onClick={() => playCard(card)}
-                                                className={`px-4 py-3 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl font-bold text-lg transition-all transform hover:scale-110 hover:shadow-lg ${gameState.current_turn === playerID
-                                                        ? 'hover:-translate-y-1 cursor-pointer'
-                                                        : 'opacity-50 cursor-not-allowed'
-                                                    }`}
-                                            >
-                                                {card}
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-
-                                {/* 选牌区域（多选模式） */}
-                                {gameState.multi_select && (
-                                    <div className="mb-6">
-                                        <div className="flex justify-between items-center mb-3">
-                                            <div className="text-lg font-bold">选择卡牌</div>
-                                            <button
-                                                onClick={() => wsService.gameAction('play_selected', { cards: selectedCards })}
-                                                disabled={selectedCards.length === 0}
-                                                className="bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed px-4 py-2 rounded-lg font-medium transition-colors"
-                                            >
-                                                出牌 ({selectedCards.length})
-                                            </button>
-                                        </div>
-                                        <div className="flex flex-wrap gap-2">
-                                            {(gameState.hands?.[playerID] || []).map((card: string, index: number) => (
-                                                <button
-                                                    key={`select-${card}-${index}`}
-                                                    onClick={() => selectCard(card)}
-                                                    className={`px-4 py-3 rounded-xl font-bold text-lg transition-all border-2 ${selectedCards.includes(card)
-                                                            ? 'bg-blue-600 border-blue-400 scale-105'
-                                                            : 'bg-gray-700 border-gray-600 hover:bg-gray-600'
-                                                        }`}
-                                                >
-                                                    {card}
-                                                </button>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-                        )}
+                        {roomInfo.status === 'playing' && renderGame()}
 
                         {/* 游戏日志 */}
                         <div className="bg-gray-800 rounded-2xl p-6 shadow-2xl">
-                            <h3 className="text-xl font-bold mb-4">游戏副本日志</h3>
+                            <h3 className="text-xl font-bold mb-4">游戏日志</h3>
                             <div className="bg-black/50 h-48 overflow-y-auto rounded-xl p-4 font-mono text-sm">
                                 {gameLog.map((log, index) => (
                                     <div key={index} className="py-1 text-gray-300">
@@ -333,23 +318,35 @@ const GameRoom: React.FC = () => {
                         </div>
 
                         {/* 聊天区域 */}
-                        <div className="bg-gray-800 rounded-2xl p-6 shadow-2xl">
+                        <div className="bg-gray-800 rounded-2xl p-6 shadow-2xl flex flex-col h-80">
                             <h3 className="text-xl font-bold mb-4">💬 聊天</h3>
-                            <div className="space-y-3">
-                                <div className="bg-black/30 h-32 overflow-y-auto rounded-xl p-3 text-sm">
-                                    {/* 聊天消息显示区域 */}
+                            <div className="flex-1 overflow-y-auto space-y-2 text-sm mb-4">
+                                {chatMessages.length === 0 ? (
                                     <div className="text-gray-400 text-center py-8">暂无消息</div>
-                                </div>
-                                <div className="flex gap-2">
-                                    <input
-                                        type="text"
-                                        placeholder="输入消息..."
-                                        className="flex-1 px-3 py-2 bg-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                    />
-                                    <button className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg font-medium">
-                                        发送
-                                    </button>
-                                </div>
+                                ) : (
+                                    chatMessages.map((msg, index) => (
+                                        <div key={index} className="flex gap-2">
+                                            <span className="text-blue-400 font-medium">{msg.player}：</span>
+                                            <span>{msg.content}</span>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                            <div className="flex gap-2">
+                                <input
+                                    type="text"
+                                    value={chatInput}
+                                    onChange={(e) => setChatInput(e.target.value)}
+                                    onKeyPress={(e) => e.key === 'Enter' && handleSendChat()}
+                                    placeholder="输入消息..."
+                                    className="flex-1 px-3 py-2 bg-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                />
+                                <button
+                                    onClick={handleSendChat}
+                                    className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg font-medium"
+                                >
+                                    发送
+                                </button>
                             </div>
                         </div>
                     </div>

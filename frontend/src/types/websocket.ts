@@ -8,6 +8,22 @@ export interface WSMessage {
 // 游戏类型枚举
 export type GameType = 'simple' | 'ddz' | 'mahjong' | 'durian';
 
+// 玩家座位信息（与后端 PlayerSeatInfo 对应）
+export interface SeatPlayerInfo {
+  player_id: string;
+  seat_number: number;
+  ready: boolean;
+  is_offline: boolean;
+}
+
+// 房间状态变更内容（与后端 RoomStateContent 对应）
+export interface RoomStateContent {
+  room_id: string;
+  state: 'waiting' | 'playing';
+  players: SeatPlayerInfo[];
+  message: string;
+}
+
 // 房间信息
 export interface RoomInfo {
   id: string;
@@ -44,7 +60,9 @@ export const MessageTypes = {
 export const BroadcastEvents = {
   ROOM_STATE_CHANGED: 'room_state_changed',
   CHAT_MESSAGE: 'chat_message',
-  GAME_STATE_UPDATE: 'game_state_update',
+  GAME_STATE_UPDATE: 'state_update',
+  GAME_STARTED: 'game_started',
+  GAME_OVER: 'game_over',
   PLAYER_JOINED: 'player_joined',
   PLAYER_LEFT: 'player_left'
 } as const;

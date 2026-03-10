@@ -1,15 +1,13 @@
-import { 
-  WSMessage, 
-  MessageTypes, 
+import {
+  WSMessage,
+  MessageTypes,
   BroadcastEvents,
   CreateRoomData,
   JoinRoomData,
   RoomActionData,
   GameActionData,
   ChatData,
-  BroadcastData,
-  RoomInfo,
-  PlayerInfo
+  BroadcastData
 } from '../types/websocket';
 
 class WebSocketService {
@@ -25,9 +23,15 @@ class WebSocketService {
   connect(playerName: string): Promise<void> {
     return new Promise((resolve, reject) => {
       this.playerID = playerName;
-      
-      // 使用相对路径，让Vite代理处理
-      const wsUrl = `/ws?player=${encodeURIComponent(playerName)}`;
+
+      // 根据环境使用相对路径或绝对路径
+      const wsBaseUrl = import.meta.env.DEV
+        ? ''  // 开发环境：使用Vite代理
+        : import.meta.env.VITE_WS_URL || '';
+
+      const wsUrl = wsBaseUrl
+        ? `${wsBaseUrl}/ws?player=${encodeURIComponent(playerName)}`
+        : `/ws?player=${encodeURIComponent(playerName)}`;
 
       this.ws = new WebSocket(wsUrl);
 
@@ -78,7 +82,7 @@ class WebSocketService {
   // 处理广播消息
   private handleBroadcast(data: BroadcastData) {
     console.log('处理广播消息:', data.event, data.content);
-    
+
     switch (data.event) {
       case BroadcastEvents.ROOM_STATE_CHANGED:
         this.emit('roomStateChanged', data.content);
@@ -88,6 +92,12 @@ class WebSocketService {
         break;
       case BroadcastEvents.GAME_STATE_UPDATE:
         this.emit('gameStateUpdate', data.content);
+        break;
+      case BroadcastEvents.GAME_STARTED:
+        this.emit('gameStarted', data.content);
+        break;
+      case BroadcastEvents.GAME_OVER:
+        this.emit('gameOver', data.content);
         break;
       case BroadcastEvents.PLAYER_JOINED:
         this.emit('playerJoined', data.content);
@@ -151,6 +161,15 @@ class WebSocketService {
       data: {
         room_id: roomID
       } as JoinRoomData
+    };
+    this.sendMessage(message);
+  }
+
+  // 离开房间
+  leaveRoom() {
+    const message: WSMessage = {
+      type: MessageTypes.ROOM_LEAVE,
+      room_id: this.currentRoomID
     };
     this.sendMessage(message);
   }

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { wsService } from '../services/WebSocketService';
 import { useApp } from '../context/AppContext';
@@ -43,8 +43,8 @@ const LobbyPage: React.FC = () => {
         setShowCreateModal(false);
         // 等待服务器返回房间ID后导航
         wsService.on('roomStateChanged', (data) => {
-            if (data.room?.id) {
-                navigate(`/room/${data.room.id}`);
+            if (data.room_id) {
+                navigate(`/room/${data.room_id}?gameType=${selectedGameType}`);
             }
         });
     };
