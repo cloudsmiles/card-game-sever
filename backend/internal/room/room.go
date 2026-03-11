@@ -487,10 +487,11 @@ func (r *Room) broadcastRoomStateInternal(message string) {
 		Data: types.BroadcastData{
 			Event: types.RoomStateChanged,
 			Content: types.RoomStateContent{
-				RoomID:  r.ID,
-				State:   r.State,
-				Players: players,
-				Message: message,
+				RoomID:   r.ID,
+				GameType: r.GameType,
+				State:    r.State,
+				Players:  players,
+				Message:  message,
 			},
 		},
 	}

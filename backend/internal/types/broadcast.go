@@ -33,10 +33,11 @@ type ChatContent struct {
 
 // RoomStateContent 房间状态变更广播（包含玩家加入/离开/准备/选座等所有变化）
 type RoomStateContent struct {
-	RoomID  string           `json:"room_id"`
-	State   RoomState        `json:"state"`
-	Players []PlayerSeatInfo `json:"players"`
-	Message string           `json:"message"`
+	RoomID   string           `json:"room_id"`
+	GameType string           `json:"game_type"`  // 游戏类型
+	State    RoomState        `json:"state"`
+	Players  []PlayerSeatInfo `json:"players"`
+	Message  string           `json:"message"`
 }
 
 // PlayerSeatInfo 玩家座位信息
