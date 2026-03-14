@@ -1,21 +1,34 @@
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import { AppProvider } from './context/AppContext';
-import MagicalLobbyPage from './pages/MagicalLobbyPage';
-import GameRoom from './pages/GameRoom';
+import { useMemo } from 'react';
+import { RouterProvider } from 'react-router-dom';
+import { ThemeProvider, CssBaseline, Box } from '@mui/material';
+import { createAppTheme } from './theme';
+import { useUIStore } from './stores/uiStore';
+import { WebSocketProvider } from './contexts/WebSocketContext';
+import { NotificationManager, ConnectionDebug } from './components/common';
+import { Header } from './components/layout';
+import { ChatPanel } from './components/chat/ChatPanel';
+import { router } from './router';
 
 function App() {
-    return (
-        <Router>
-            <AppProvider>
-                <div className="App">
-                    <Routes>
-                        <Route path="/" element={<MagicalLobbyPage />} />
-                        <Route path="/room/:roomId" element={<GameRoom />} />
-                    </Routes>
-                </div>
-            </AppProvider>
-        </Router>
-    );
+  const { theme: themeMode } = useUIStore();
+  const theme = useMemo(() => createAppTheme(themeMode), [themeMode]);
+
+  return (
+    <ThemeProvider theme={theme}>
+      <CssBaseline />
+      <WebSocketProvider>
+        <Box sx={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+          <Header />
+          <Box component="main" sx={{ flexGrow: 1 }}>
+            <RouterProvider router={router} />
+          </Box>
+        </Box>
+        <ChatPanel roomOnly={true} />
+        <ConnectionDebug />
+        <NotificationManager />
+      </WebSocketProvider>
+    </ThemeProvider>
+  );
 }
 
 export default App;

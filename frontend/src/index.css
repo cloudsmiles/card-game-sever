@@ -1,155 +1,20 @@
-@import './styles/theme.css';
-
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
 :root {
-    font-family: 'Segoe UI', 'Roboto', sans-serif;
-    line-height: 1.5;
-    font-weight: 400;
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', Inter, 'Segoe UI', Roboto, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color-scheme: light dark;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
 
-    color-scheme: light;
-    color: #333333;
-    background-color: #FAFAFA;
-
-    font-synthesis: none;
-    text-rendering: optimizeLegibility;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
 }
 
 body {
-    margin: 0;
-    min-width: 320px;
-    min-height: 100vh;
-    overflow-x: hidden;
-    display: block;
-    place-items: normal;
-}
-
-/* 正常页面容器 */
-.page-wrapper {
-    position: relative;
-    min-height: 100vh;
-    background: #FAFAFA;
-}
-
-/* 通用卡片 */
-.card {
-    background: #FFFFFF;
-    border-radius: 16px;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
-    border: 1px solid #E0E0E0;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.card:hover {
-    transform: translateY(-4px);
-    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15);
-}
-
-/* 通用按钮 */
-.btn {
-    border: none;
-    border-radius: 12px;
-    padding: 12px 24px;
-    font-size: 16px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
-}
-
-.btn-primary {
-    background: linear-gradient(135deg, #0F52BA 0%, #2E7BD0 100%);
-    color: #FFFFFF;
-}
-
-.btn-primary:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 6px 20px rgba(15, 82, 186, 0.4);
-}
-
-.btn-secondary {
-    background: linear-gradient(135deg, #E0115F 0%, #FF2D7A 100%);
-    color: #FFFFFF;
-}
-
-.btn-secondary:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 6px 20px rgba(224, 17, 95, 0.4);
-}
-
-.btn:active {
-    transform: translateY(0);
-}
-
-/* 输入框 */
-.input {
-    border: 2px solid #E0E0E0;
-    border-radius: 12px;
-    padding: 12px 20px;
-    font-size: 16px;
-    background: #FFFFFF;
-    transition: all 0.3s ease;
-    box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.05);
-}
-
-.input:focus {
-    outline: none;
-    border-color: #0F52BA;
-    box-shadow: 0 0 0 3px rgba(15, 82, 186, 0.2), inset 0 2px 5px rgba(0, 0, 0, 0.05);
-    transform: scale(1.02);
-}
-
-/* 标题 */
-.title {
-    background: linear-gradient(135deg, #0F52BA 0%, #E0115F 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-    font-weight: bold;
-    letter-spacing: 0.5px;
-}
-
-.title-blue {
-    background: linear-gradient(135deg, #0F52BA 0%, #2E7BD0 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-}
-
-.title-red {
-    background: linear-gradient(135deg, #E0115F 0%, #FF2D7A 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-}
-
-/* 悬停效果 */
-.hover-lift {
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.hover-lift:hover {
-    transform: translateY(-4px);
-    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
-}
-
-/* 加载动画 */
-.spinner {
-    width: 40px;
-    height: 40px;
-    border: 4px solid #E0E0E0;
-    border-top-color: #0F52BA;
-    border-right-color: #E0115F;
-    border-radius: 50%;
-    animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-    to {
-        transform: rotate(360deg);
-    }
+  min-height: 100vh;
 }

@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebSocket Test</title>
+</head>
+<body>
+    <h1>WebSocket Connection Test</h1>
+    <div id="status">Disconnected</div>
+    <button onclick="connect()">Connect</button>
+    <button onclick="disconnect()">Disconnect</button>
+    <div id="log"></div>
+
+    <script>
+        let ws = null;
+        const log = document.getElementById('log');
+        const status = document.getElementById('status');
+
+        function addLog(msg) {
+            const p = document.createElement('p');
+            p.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+            log.appendChild(p);
+        }
+
+        function connect() {
+            const playerId = 'test_' + Date.now();
+            const url = 'ws://localhost:8080/ws?player=' + playerId;
+            
+            addLog('Connecting to: ' + url);
+            status.textContent = 'Connecting...';
+            
+            ws = new WebSocket(url);
+            
+            ws.onopen = () => {
+                addLog('Connected!');
+                status.textContent = 'Connected';
+                status.style.color = 'green';
+            };
+            
+            ws.onmessage = (event) => {
+                addLog('Received: ' + event.data);
+            };
+            
+            ws.onerror = (error) => {
+                addLog('Error: ' + error);
+                status.textContent = 'Error';
+                status.style.color = 'red';
+            };
+            
+            ws.onclose = () => {
+                addLog('Disconnected');
+                status.textContent = 'Disconnected';
+                status.style.color = 'gray';
+            };
+        }
+
+        function disconnect() {
+            if (ws) {
+                ws.close();
+            }
+        }
+    </script>
+</body>
+</html>
