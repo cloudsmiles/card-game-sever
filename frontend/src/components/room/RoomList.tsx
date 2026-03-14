@@ -14,9 +14,9 @@ import { Refresh } from '@mui/icons-material';
 import { motion } from 'framer-motion';
 import { RoomCard } from './RoomCard';
 import { Loading } from '../common';
-import { roomApi } from '@/services/roomApi';
+import { roomApi, type ApiRoomInfo } from '@/services/roomApi';
 import { useUIStore } from '@/stores/uiStore';
-import type { RoomInfo, GameType } from '@/types/room';
+import type { GameType, RoomInfo } from '@/types/room';
 
 interface RoomListProps {
   onJoinRoom: (roomId: string) => void;
@@ -28,18 +28,24 @@ export const RoomList: React.FC<RoomListProps> = ({ onJoinRoom }) => {
   const [gameTypeFilter, setGameTypeFilter] = useState<GameType | 'all'>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'waiting' | 'playing'>('all');
   const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
   const { addNotification } = useUIStore();
 
-  const limit = 12;
+  const itemsPerPage = 12;
+
+  // 转换后端数据格式到前端格式
+  const convertApiRoom = (apiRoom: ApiRoomInfo): RoomInfo => ({
+    room_id: apiRoom.id,
+    game_type: apiRoom.game_type as GameType,
+    status: apiRoom.state as 'waiting' | 'playing',
+    players: [],
+    player_count: apiRoom.players,
+    max_players: apiRoom.max_players,
+  });
 
   const fetchRooms = async () => {
     try {
       setLoading(true);
-      const params: any = {
-        page,
-        limit,
-      };
+      const params: any = {};
 
       if (gameTypeFilter !== 'all') {
         params.game_type = gameTypeFilter;
@@ -48,16 +54,15 @@ export const RoomList: React.FC<RoomListProps> = ({ onJoinRoom }) => {
         params.status = statusFilter;
       }
 
-      const response = await roomApi.getRooms(params);
-      setRooms(response.rooms);
-      setTotalPages(Math.ceil(response.total / limit));
+      const apiRooms = await roomApi.getRooms(params);
+      const convertedRooms = apiRooms.map(convertApiRoom);
+      setRooms(convertedRooms);
     } catch (error: any) {
       console.error('Failed to fetch rooms:', error);
       addNotification({
         type: 'error',
         message: '获取房间列表失败',
       });
-      // Set empty rooms on error
       setRooms([]);
     } finally {
       setLoading(false);
@@ -66,12 +71,12 @@ export const RoomList: React.FC<RoomListProps> = ({ onJoinRoom }) => {
 
   useEffect(() => {
     fetchRooms();
-    
+
     // Poll every 5 seconds
     const interval = setInterval(fetchRooms, 5000);
-    
+
     return () => clearInterval(interval);
-  }, [page, gameTypeFilter, statusFilter]);
+  }, [gameTypeFilter, statusFilter]);
 
   const handleRefresh = () => {
     fetchRooms();
@@ -155,23 +160,25 @@ export const RoomList: React.FC<RoomListProps> = ({ onJoinRoom }) => {
       ) : (
         <>
           <Grid container spacing={2}>
-            {rooms.map((room, index) => (
-              <Grid item xs={12} sm={6} md={4} lg={3} key={room.room_id}>
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: index * 0.05 }}
-                >
-                  <RoomCard room={room} onJoin={onJoinRoom} />
-                </motion.div>
-              </Grid>
-            ))}
+            {rooms
+              .slice((page - 1) * itemsPerPage, page * itemsPerPage)
+              .map((room, index) => (
+                <Grid item xs={12} sm={6} md={4} lg={3} key={room.room_id}>
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: index * 0.05 }}
+                  >
+                    <RoomCard room={room} onJoin={onJoinRoom} />
+                  </motion.div>
+                </Grid>
+              ))}
           </Grid>
 
-          {totalPages > 1 && (
+          {Math.ceil(rooms.length / itemsPerPage) > 1 && (
             <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
               <Pagination
-                count={totalPages}
+                count={Math.ceil(rooms.length / itemsPerPage)}
                 page={page}
                 onChange={(_, value) => setPage(value)}
                 color="primary"

@@ -18,6 +18,7 @@ type Room struct {
 	Players         map[string]*Client   // playerID -> Client
 	Seats           map[int]string       // seatNumber -> playerID
 	Ready           map[string]bool      // playerID -> ready status
+	Bots            map[string]bool      // botID -> true (tracks which players are bots)
 	OfflinePlayers  map[string]time.Time // playerID -> 断线时间
 	Game            interfaces.Game
 	mu              sync.RWMutex
@@ -40,6 +41,7 @@ func NewRoom(id, gameType string) *Room {
 		Players:        make(map[string]*Client),
 		Seats:          make(map[int]string),
 		Ready:          make(map[string]bool),
+		Bots:           make(map[string]bool),
 		OfflinePlayers: make(map[string]time.Time),
 		broadcast:      make(chan types.Message, 512), // 加大缓冲
 		lastAction:     make(map[string]int64),
@@ -313,6 +315,31 @@ func (r *Room) RemovePlayer(playerID string) bool {
 
 	// 从 GlobalPlayerTracker 移除
 	GlobalPlayerTracker.RemovePlayer(playerID)
+	delete(r.Bots, playerID)
+
+	// 如果只剩机器人，清理所有机器人
+	hasHuman := false
+	for pid := range r.Players {
+		if !r.Bots[pid] {
+			hasHuman = true
+			break
+		}
+	}
+	if !hasHuman && len(r.Players) > 0 {
+		for botID := range r.Bots {
+			if client, exists := r.Players[botID]; exists {
+				if client.SeatNumber >= 0 {
+					delete(r.Seats, client.SeatNumber)
+				}
+				close(client.Send)
+			}
+			delete(r.Players, botID)
+			delete(r.Ready, botID)
+			delete(r.Bots, botID)
+			GlobalPlayerTracker.RemovePlayer(botID)
+			GlobalNicknameTracker.RemoveNickname(botID)
+		}
+	}
 
 	// 广播房间状态变更（包含玩家离开）
 	r.broadcastRoomStateWithMessage(fmt.Sprintf("玩家 %s 离开了房间", playerID))
@@ -347,6 +374,9 @@ func (r *Room) ProcessRoomAction(playerID string, action types.RoomActionData) e
 		var sitData types.RoomActionSitData
 		json.Unmarshal(sitDataBytes, &sitData)
 		return r.setPlayerSeat(playerID, sitData.SeatNumber)
+
+	case types.RoomActionAddBot:
+		return r.AddBot()
 
 	default:
 		return fmt.Errorf("未知的房间操作: %s", action.Action)
@@ -473,9 +503,11 @@ func (r *Room) broadcastRoomStateInternal(message string) {
 			}
 			players = append(players, types.PlayerSeatInfo{
 				PlayerID:   playerID,
+				Nickname:   GlobalNicknameTracker.GetNickname(playerID),
 				SeatNumber: seatNum,
 				Ready:      r.Ready[playerID],
 				IsOffline:  isOffline,
+				IsBot:      r.Bots[playerID],
 			})
 		}
 	}
@@ -538,6 +570,13 @@ func (r *Room) ProcessGameAction(playerID string, data types.GameActionData) err
 		}
 		return nil
 	}
+
+	// 检查下一个玩家是否是机器人
+	nextPlayer := r.Game.CurrentTurn()
+	if r.Bots[nextPlayer] {
+		go r.checkBotTurn()
+	}
+
 	return nil
 }
 
@@ -581,6 +620,12 @@ func (r *Room) startGame() error {
 	// 设置游戏超时回调（游戏层会自己管理定时器）
 	r.setupGameTimers()
 
+	// 检查第一个回合是否是机器人
+	firstPlayer := r.Game.CurrentTurn()
+	if r.Bots[firstPlayer] {
+		go r.checkBotTurn()
+	}
+
 	return nil
 }
 
@@ -600,6 +645,10 @@ func (r *Room) handleGameEnd() error {
 	// 清除准备状态
 	for playerID := range r.Ready {
 		r.Ready[playerID] = false
+	}
+	// 机器人自动重新准备
+	for botID := range r.Bots {
+		r.Ready[botID] = true
 	}
 
 	// 3. 构建并广播最终的 room_state_changed 事件

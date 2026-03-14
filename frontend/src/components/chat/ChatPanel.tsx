@@ -40,11 +40,6 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ roomOnly = false }) => {
   const { playerId } = useUserStore();
   const { sendChat } = useWebSocket();
 
-  // 如果设置为只在房间内显示，且当前不在房间内，则不显示
-  if (roomOnly && !currentRoomId) {
-    return null;
-  }
-
   const [message, setMessage] = useState('');
   const [showQuickPhrases, setShowQuickPhrases] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -56,6 +51,11 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ roomOnly = false }) => {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  // 如果设置为只在房间内显示，且当前不在房间内，则不显示
+  if (roomOnly && !currentRoomId) {
+    return null;
+  }
 
   const handleSend = () => {
     if (!message.trim() || !currentRoomId) return;

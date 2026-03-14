@@ -9,13 +9,14 @@ import {
   IconButton,
   Tooltip,
 } from '@mui/material';
-import { ContentCopy, ExitToApp } from '@mui/icons-material';
+import { ContentCopy, ExitToApp, SmartToy } from '@mui/icons-material';
 import { motion } from 'framer-motion';
 import { useRoomStore } from '@/stores/roomStore';
 import { useChatStore } from '@/stores/chatStore';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { useUIStore } from '@/stores/uiStore';
 import { PlayerList, ReadyButton } from '@/components/room';
+import { DDZGame } from '@/games/ddz';
 
 const gameTypeNames: Record<string, string> = {
   ddz: '斗地主',
@@ -27,13 +28,13 @@ export const RoomPage: React.FC = () => {
   const { roomId } = useParams<{ roomId: string }>();
   const { currentRoomId, gameType, roomStatus, players, maxPlayers, leaveRoom } = useRoomStore();
   const { clearMessages } = useChatStore();
-  const { leaveRoom: wsLeaveRoom } = useWebSocket();
+  const { leaveRoom: wsLeaveRoom, addBot } = useWebSocket();
   const { addNotification } = useUIStore();
   const navigate = useNavigate();
 
   useEffect(() => {
-    // If no room ID or not in this room, redirect to lobby
-    if (!roomId || (currentRoomId && currentRoomId !== roomId)) {
+    // If no room ID in URL, or we haven't actually joined this room, redirect to lobby
+    if (!roomId || !currentRoomId || currentRoomId !== roomId) {
       navigate('/lobby');
     }
   }, [roomId, currentRoomId, navigate]);
@@ -42,6 +43,7 @@ export const RoomPage: React.FC = () => {
     if (roomId) {
       wsLeaveRoom(roomId);
     }
+    // Clear local state immediately for responsive UI
     leaveRoom();
     clearMessages();
     navigate('/lobby');
@@ -59,6 +61,13 @@ export const RoomPage: React.FC = () => {
 
   const allPlayersReady = players.length > 0 && players.every((p) => p.ready);
   const hasEnoughPlayers = players.length >= 2; // Minimum 2 players
+  const canAddBot = players.length < maxPlayers && roomStatus === 'waiting';
+
+  const handleAddBot = () => {
+    if (roomId) {
+      addBot(roomId);
+    }
+  };
 
   return (
     <Container maxWidth="lg">
@@ -114,6 +123,18 @@ export const RoomPage: React.FC = () => {
                   <ReadyButton />
                 </Box>
 
+                {canAddBot && (
+                  <Button
+                    fullWidth
+                    variant="outlined"
+                    startIcon={<SmartToy />}
+                    onClick={handleAddBot}
+                    sx={{ mb: 3 }}
+                  >
+                    添加机器人
+                  </Button>
+                )}
+
                 {!hasEnoughPlayers && (
                   <Typography variant="body2" color="warning.main" sx={{ textAlign: 'center' }}>
                     等待更多玩家加入...
@@ -135,14 +156,23 @@ export const RoomPage: React.FC = () => {
             </Box>
           </Box>
         ) : (
-          <Paper sx={{ p: 4, textAlign: 'center' }}>
-            <Typography variant="h6" color="text.secondary">
-              游戏进行中...
-            </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-              游戏界面开发中
-            </Typography>
-          </Paper>
+          <Box>
+            {gameType === 'ddz' && <DDZGame />}
+            {gameType === 'mahjong' && (
+              <Paper sx={{ p: 4, textAlign: 'center' }}>
+                <Typography variant="h6" color="text.secondary">
+                  麻将游戏开发中...
+                </Typography>
+              </Paper>
+            )}
+            {gameType === 'durian' && (
+              <Paper sx={{ p: 4, textAlign: 'center' }}>
+                <Typography variant="h6" color="text.secondary">
+                  榴莲忘返游戏开发中...
+                </Typography>
+              </Paper>
+            )}
+          </Box>
         )}
       </Box>
     </Container>

@@ -15,7 +15,7 @@ const gameTypeNames: Record<string, string> = {
 };
 
 export const RoomCard: React.FC<RoomCardProps> = ({ room, onJoin }) => {
-  const isFull = room.players.length >= room.max_players;
+  const isFull = room.player_count >= room.max_players;
   const isPlaying = room.status === 'playing';
   const canJoin = !isFull && !isPlaying;
 
@@ -53,7 +53,7 @@ export const RoomCard: React.FC<RoomCardProps> = ({ room, onJoin }) => {
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <People fontSize="small" color="action" />
           <Typography variant="body2" color="text.secondary">
-            {room.players.length}/{room.max_players} 人
+            {room.player_count}/{room.max_players} 人
           </Typography>
         </Box>
       </CardContent>

@@ -2,6 +2,7 @@ package room
 
 import (
 	"fmt"
+	"math/rand"
 	"sync"
 )
 
@@ -20,6 +21,38 @@ type PlayerRoomTracker struct {
 }
 
 var GlobalPlayerTracker = &PlayerRoomTracker{playerRooms: make(map[string]string)}
+
+// NicknameTracker 追踪玩家昵称
+type NicknameTracker struct {
+	nicknames map[string]string // playerID -> nickname
+	mu        sync.RWMutex
+}
+
+var GlobalNicknameTracker = &NicknameTracker{nicknames: make(map[string]string)}
+
+// SetNickname 设置玩家昵称
+func (nt *NicknameTracker) SetNickname(playerID, nickname string) {
+	nt.mu.Lock()
+	defer nt.mu.Unlock()
+	nt.nicknames[playerID] = nickname
+}
+
+// GetNickname 获取玩家昵称，如果没有则返回playerID
+func (nt *NicknameTracker) GetNickname(playerID string) string {
+	nt.mu.RLock()
+	defer nt.mu.RUnlock()
+	if nick, exists := nt.nicknames[playerID]; exists {
+		return nick
+	}
+	return playerID
+}
+
+// RemoveNickname 移除玩家昵称
+func (nt *NicknameTracker) RemoveNickname(playerID string) {
+	nt.mu.Lock()
+	defer nt.mu.Unlock()
+	delete(nt.nicknames, playerID)
+}
 
 // GetPlayerRoom 获取玩家当前所在的房间ID
 func (pt *PlayerRoomTracker) GetPlayerRoom(playerID string) (string, bool) {
@@ -53,13 +86,23 @@ var GlobalManager = &Manager{rooms: make(map[string]*Room)}
 func (m *Manager) CreateRoom(gameType string) string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	id := fmt.Sprintf("room_%d", len(m.rooms)+1)
+	id := m.generateRoomID()
 	room := NewRoom(id, gameType)
 	if room == nil {
 		return "" // 返回空字符串表示创建失败
 	}
 	m.rooms[id] = room
 	return id
+}
+
+// generateRoomID 生成6位数字房间号（调用者必须持有写锁）
+func (m *Manager) generateRoomID() string {
+	for {
+		id := fmt.Sprintf("%06d", rand.Intn(1000000))
+		if _, exists := m.rooms[id]; !exists {
+			return id
+		}
+	}
 }
 
 func (m *Manager) GetRoom(id string) (*Room, error) {
@@ -93,9 +136,9 @@ func (m *Manager) GetAllRooms() []*Room {
 
 // RoomInfo 房间简要信息（用于HTTP API）
 type RoomInfo struct {
-	ID        string `json:"id"`
-	GameType  string `json:"game_type"`
-	State     string `json:"state"`
-	Players   int    `json:"players"`
-	MaxPlayers int   `json:"max_players"`
+	ID         string `json:"id"`
+	GameType   string `json:"game_type"`
+	State      string `json:"state"`
+	Players    int    `json:"players"`
+	MaxPlayers int    `json:"max_players"`
 }

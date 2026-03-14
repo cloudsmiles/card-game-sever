@@ -28,11 +28,9 @@ export const useWebSocket = () => {
 
   const leaveRoom = (roomId: string) => {
     send({
-      type: 'game.action',
+      type: 'room.leave',
       room_id: roomId,
-      data: {
-        action: 'leave',
-      },
+      data: {},
     });
   };
 
@@ -41,7 +39,7 @@ export const useWebSocket = () => {
       type: 'room.action',
       room_id: roomId,
       data: {
-        action: ready ? 'ready' : 'unready',
+        action: 'ready',
         data: { ready },
       },
     });
@@ -79,6 +77,16 @@ export const useWebSocket = () => {
     });
   };
 
+  const addBot = (roomId: string) => {
+    send({
+      type: 'room.action',
+      room_id: roomId,
+      data: {
+        action: 'add_bot',
+      },
+    });
+  };
+
   return {
     isConnected,
     connect,
@@ -91,5 +99,6 @@ export const useWebSocket = () => {
     selectSeat,
     sendChat,
     sendGameAction,
+    addBot,
   };
 };

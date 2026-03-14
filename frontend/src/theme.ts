@@ -126,6 +126,13 @@ export const createAppTheme = (mode: 'light' | 'dark') => {
           },
         },
       },
+      MuiAppBar: {
+        styleOverrides: {
+          root: {
+            borderRadius: 0,
+          },
+        },
+      },
       MuiTextField: {
         styleOverrides: {
           root: {

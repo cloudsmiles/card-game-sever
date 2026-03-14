@@ -32,6 +32,13 @@ func WSHandler(w http.ResponseWriter, r *http.Request) {
 		playerID = "player_" + randomString(6)
 	}
 
+	// 获取昵称
+	nickname := r.URL.Query().Get("nickname")
+	if nickname == "" {
+		nickname = playerID
+	}
+	room.GlobalNicknameTracker.SetNickname(playerID, nickname)
+
 	// 检查玩家是否已连接（防止同一playerID多次连接）
 	if isPlayerConnected(playerID) {
 		log.Printf("拒绝重复连接 [玩家: %s]", playerID)
@@ -81,6 +88,7 @@ func WSHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		// 标记玩家为已断开连接
 		setPlayerConnected(playerID, false)
+		room.GlobalNicknameTracker.RemoveNickname(playerID)
 		log.Printf("玩家已断开连接 [玩家: %s]", playerID)
 		close(send)
 		conn.Close()
@@ -137,6 +145,9 @@ func WSHandler(w http.ResponseWriter, r *http.Request) {
 			json.Unmarshal(dataBytes, &joinData)
 			msg.Data = joinData
 			handleJoinRoom(conn, send, msg, &currentRoomID)
+		case types.RoomLeave:
+			msg.RoomID = getString(rawMsg, "room_id")
+			handleLeaveRoom(conn, send, msg, &currentRoomID)
 		case types.Chat:
 			var chatData types.ChatData
 			json.Unmarshal(dataBytes, &chatData)
@@ -280,6 +291,53 @@ func handleJoinRoom(conn *websocket.Conn, send chan types.Message, msg types.Mes
 	*roomIDRef = joinData.RoomID
 }
 
+func handleLeaveRoom(conn *websocket.Conn, send chan types.Message, msg types.Message, roomIDRef *string) {
+	log.Printf("收到离开房间请求 [玩家: %s, room_id: %s]", msg.PlayerID, msg.RoomID)
+
+	roomID := msg.RoomID
+	if roomID == "" {
+		// 尝试从 tracker 获取
+		if rid, exists := room.GlobalPlayerTracker.GetPlayerRoom(msg.PlayerID); exists {
+			roomID = rid
+			log.Printf("从 tracker 获取房间ID [玩家: %s, 房间: %s]", msg.PlayerID, roomID)
+		} else {
+			sendErrorMessage(conn, types.ErrorData{
+				Code:    types.ErrPlayerNotInRoomCode,
+				Message: "玩家不在任何房间中",
+			})
+			return
+		}
+	}
+
+	roomObj, err := room.GlobalManager.GetRoom(roomID)
+	if err != nil {
+		sendErrorMessage(conn, types.ErrorData{
+			Code:    types.ErrRoomNotFoundCode,
+			Message: fmt.Sprintf("房间不存在: %v", err),
+		})
+		return
+	}
+
+	isEmpty := roomObj.RemovePlayer(msg.PlayerID)
+	log.Printf("玩家 [%s] 主动离开房间 [%s], 房间是否为空: %v", msg.PlayerID, roomID, isEmpty)
+
+	if isEmpty {
+		room.GlobalManager.RemoveRoom(roomID)
+	}
+
+	// 通知客户端离开成功
+	conn.WriteJSON(types.Message{
+		Type: types.Broadcast,
+		Data: types.BroadcastData{
+			Event:   "room_left",
+			Content: map[string]string{"room_id": roomID},
+		},
+	})
+
+	// 清除当前房间ID
+	*roomIDRef = ""
+}
+
 func handleChat(conn *websocket.Conn, send chan types.Message, msg types.Message) {
 	// 0. 验证玩家是否在房间中
 	if err := validatePlayerInRoom(msg.PlayerID, msg.RoomID); err != nil {
@@ -325,6 +383,7 @@ func handleChat(conn *websocket.Conn, send chan types.Message, msg types.Message
 			Content: types.ChatContent{
 				RoomID:   msg.RoomID,
 				PlayerID: msg.PlayerID,
+				Nickname: room.GlobalNicknameTracker.GetNickname(msg.PlayerID),
 				Content:  chatData.Content,
 			},
 		},

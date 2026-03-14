@@ -39,15 +39,23 @@ export const useUIStore = create<UIState>()(
         setTheme: (theme) => set({ theme }),
 
         addNotification: (notification) =>
-          set((state) => ({
-            notifications: [
-              ...state.notifications,
-              {
-                ...notification,
-                id: `${Date.now()}-${Math.random()}`,
-              },
-            ],
-          })),
+          set((state) => {
+            // Deduplicate: skip if same message already exists
+            const isDuplicate = state.notifications.some(
+              (n) => n.message === notification.message && n.type === notification.type
+            );
+            if (isDuplicate) return state;
+
+            return {
+              notifications: [
+                ...state.notifications,
+                {
+                  ...notification,
+                  id: `${Date.now()}-${Math.random()}`,
+                },
+              ],
+            };
+          }),
 
         removeNotification: (id) =>
           set((state) => ({

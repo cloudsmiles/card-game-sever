@@ -1,13 +1,14 @@
-import { AppBar, Toolbar, Typography, IconButton, Box } from '@mui/material';
+import { AppBar, Toolbar, IconButton, Box } from '@mui/material';
 import { Brightness4, Brightness7 } from '@mui/icons-material';
 import { useUIStore } from '@/stores/uiStore';
 import { motion } from 'framer-motion';
+import { QCardLogo } from '@/components/common';
 
 export const Header: React.FC = () => {
   const { theme, toggleTheme } = useUIStore();
 
   return (
-    <AppBar position="static" elevation={0}>
+    <AppBar position="static" elevation={0} sx={{ borderRadius: 0 }}>
       <Toolbar>
         <Box
           component={motion.div}
@@ -15,9 +16,7 @@ export const Header: React.FC = () => {
           animate={{ x: 0, opacity: 1 }}
           sx={{ flexGrow: 1 }}
         >
-          <Typography variant="h5" component="h1" fontWeight="bold">
-            QCard
-          </Typography>
+          <QCardLogo size={36} variant="light" />
         </Box>
         
         <IconButton

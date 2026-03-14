@@ -66,6 +66,11 @@ func (g *DdzGame) Init(players []string) error {
 	g.callTurn = 0
 	g.outTurn = 0
 	g.lastPlay = Play{}
+	g.lastPlayer = ""
+	g.passCount = 0
+	g.landlord = ""
+	g.gameOver = false
+	g.winner = ""
 	rand.Seed(time.Now().UnixNano())
 
 	g.dealCards()
@@ -329,7 +334,7 @@ func (g *DdzGame) GetState() interface{} {
 		"game_over":    g.gameOver,
 		"winner":       g.winner,
 		"hand_counts":  handCounts, // 各玩家手牌数量
-		"bottom":       g.bottomCardsValues(),
+		"bottom":       g.bottomCardsForState(),
 	}
 }
 
@@ -364,6 +369,15 @@ func (g *DdzGame) bottomCardsValues() []int {
 		vals[i] = c.Value
 	}
 	return vals
+}
+
+// bottomCardsForState 只在地主确定后才返回底牌信息
+func (g *DdzGame) bottomCardsForState() []int {
+	if g.landlord == "" {
+		// 叫地主阶段，不暴露底牌
+		return nil
+	}
+	return g.bottomCardsValues()
 }
 
 func (g *DdzGame) IsGameOver() bool {

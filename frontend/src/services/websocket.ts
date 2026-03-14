@@ -10,17 +10,23 @@ export class WebSocketService {
   private maxReconnectAttempts: number = 5;
   private baseReconnectDelay: number = 3000;
   private playerId: string | null = null;
+  private nickname: string | null = null;
   private url: string = '';
   private shouldReconnect: boolean = true;
 
   /**
    * Connect to WebSocket server
    */
-  connect(playerId: string): Promise<void> {
+  connect(playerId: string, nickname?: string): Promise<void> {
     return new Promise((resolve, reject) => {
       this.playerId = playerId;
+      this.nickname = nickname || null;
       const wsUrl = (import.meta as any).env?.VITE_WS_URL || 'ws://localhost:8080/ws';
-      this.url = `${wsUrl}?player=${playerId}`;
+      const params = new URLSearchParams({ player: playerId });
+      if (nickname) {
+        params.set('nickname', nickname);
+      }
+      this.url = `${wsUrl}?${params.toString()}`;
       
       console.log('[WebSocket] Connecting to:', this.url);
 
@@ -162,7 +168,7 @@ export class WebSocketService {
     this.emit('reconnecting', { attempt: this.reconnectAttempts, delay });
 
     this.reconnectTimer = window.setTimeout(() => {
-      this.connect(this.playerId!)
+      this.connect(this.playerId!, this.nickname || undefined)
         .then(() => {
           console.log('[WebSocket] Reconnected successfully');
         })

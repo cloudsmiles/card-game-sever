@@ -28,13 +28,14 @@ type PersonalizedBroadcastData struct {
 type ChatContent struct {
 	RoomID   string `json:"room_id"`
 	PlayerID string `json:"player_id"`
+	Nickname string `json:"nickname"`
 	Content  string `json:"content"`
 }
 
 // RoomStateContent 房间状态变更广播（包含玩家加入/离开/准备/选座等所有变化）
 type RoomStateContent struct {
 	RoomID   string           `json:"room_id"`
-	GameType string           `json:"game_type"`  // 游戏类型
+	GameType string           `json:"game_type"` // 游戏类型
 	State    RoomState        `json:"state"`
 	Players  []PlayerSeatInfo `json:"players"`
 	Message  string           `json:"message"`
@@ -43,7 +44,9 @@ type RoomStateContent struct {
 // PlayerSeatInfo 玩家座位信息
 type PlayerSeatInfo struct {
 	PlayerID   string `json:"player_id"`
+	Nickname   string `json:"nickname"`
 	SeatNumber int    `json:"seat_number"`
 	Ready      bool   `json:"ready"`
 	IsOffline  bool   `json:"is_offline"` // 是否断线
+	IsBot      bool   `json:"is_bot"`     // 是否是机器人
 }

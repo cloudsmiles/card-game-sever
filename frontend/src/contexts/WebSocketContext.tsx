@@ -65,9 +65,10 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         data.players.map((p: any) => ({
           seat: p.seat_number,
           player_id: p.player_id,
-          nickname: p.player_id, // TODO: Get actual nickname
+          nickname: p.nickname || p.player_id,
           ready: p.ready,
           offline: p.is_offline,
+          is_bot: p.is_bot || false,
         }))
       );
 
@@ -89,14 +90,15 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     wsService.on('game_started', (data: any) => {
       console.log('[WebSocket] Game started:', data);
       roomStore.updateRoomStatus('playing');
-      gameStore.resetGame();
-      
-      if (data.message) {
-        uiStore.addNotification({
-          type: 'success',
-          message: data.message,
-        });
+      // The game_started event contains the initial game state
+      if (data && Object.keys(data).length > 0) {
+        gameStore.setGameData(data);
       }
+      
+      uiStore.addNotification({
+        type: 'success',
+        message: '游戏开始！',
+      });
     });
 
     // Handle game over
@@ -112,12 +114,20 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       }
     });
 
-    // Handle chat messages
-    wsService.on('chat_message', (data: any) => {
+    // Handle room left confirmation
+    wsService.on('room_left', () => {
+      console.log('[WebSocket] Room left confirmed');
+      roomStore.leaveRoom();
+      gameStore.resetGame();
+      chatStore.clearMessages();
+    });
+
+    // Handle chat messages (backend broadcasts event as "chat")
+    wsService.on('chat', (data: any) => {
       console.log('[WebSocket] Chat message:', data);
       chatStore.addMessage({
         playerId: data.player_id,
-        nickname: data.player_id, // TODO: Get actual nickname
+        nickname: data.nickname || data.player_id,
         content: data.content,
       });
     });
@@ -132,8 +142,13 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       connectionStore.setStatus('connecting');
       connectionStore.setPlayer(playerId, nickname);
       userStore.setUser(playerId, nickname);
+
+      // Clear stale room/game state from any previous session
+      roomStore.leaveRoom();
+      gameStore.resetGame();
+      chatStore.clearMessages();
       
-      await wsService.connect(playerId);
+      await wsService.connect(playerId, nickname);
     } catch (error: any) {
       connectionStore.setStatus('disconnected');
       connectionStore.setError(error.message || 'Failed to connect');

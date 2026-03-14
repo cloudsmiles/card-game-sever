@@ -1,5 +1,5 @@
 import { Box, Paper, Typography, Avatar, Chip } from '@mui/material';
-import { CheckCircle, Cancel, SignalWifiOff } from '@mui/icons-material';
+import { CheckCircle, Cancel, SignalWifiOff, SmartToy } from '@mui/icons-material';
 import { motion } from 'framer-motion';
 import type { SeatPlayerInfo } from '@/types/room';
 import { useUserStore } from '@/stores/userStore';
@@ -42,16 +42,20 @@ export const PlayerList: React.FC<PlayerListProps> = ({ players, maxPlayers }) =
         >
           <Avatar
             sx={{
-              bgcolor: player ? 'primary.main' : 'action.disabled',
+              bgcolor: player
+                ? player.is_bot ? 'info.main' : 'primary.main'
+                : 'action.disabled',
               width: 48,
               height: 48,
             }}
           >
-            {player ? player.nickname.charAt(0).toUpperCase() : index + 1}
+            {player
+              ? player.is_bot ? <SmartToy /> : player.nickname.charAt(0).toUpperCase()
+              : index + 1}
           </Avatar>
 
           <Box sx={{ flexGrow: 1 }}>
-            <Typography variant="body1" fontWeight={player ? 'bold' : 'normal'}>
+            <Typography variant="body1" component="div" fontWeight={player ? 'bold' : 'normal'}>
               {player ? player.nickname : `座位 ${index + 1}`}
               {player?.player_id === currentPlayerId && (
                 <Chip label="你" size="small" color="primary" sx={{ ml: 1 }} />

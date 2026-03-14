@@ -12,6 +12,7 @@ import {
 import { motion } from 'framer-motion';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { useUIStore } from '@/stores/uiStore';
+import { QCardLogo } from '@/components/common';
 
 export const ConnectPage: React.FC = () => {
   const [nickname, setNickname] = useState('');
@@ -69,37 +70,61 @@ export const ConnectPage: React.FC = () => {
   };
 
   return (
-    <Container maxWidth="sm">
-      <Box
-        sx={{
-          minHeight: '100vh',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
+    <Box
+      sx={{
+        minHeight: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: (theme) =>
+          theme.palette.mode === 'dark'
+            ? 'linear-gradient(135deg, #1a1a2e 0%, #2a1a0e 25%, #1a1a2e 50%, #0e1a2a 75%, #1a1a2e 100%)'
+            : 'linear-gradient(135deg, #f5f5f5 0%, #ffe8d6 25%, #f5f5f5 50%, #fff0e6 75%, #f5f5f5 100%)',
+        backgroundSize: '300% 300%',
+        animation: 'bgShift 8s ease infinite',
+        '@keyframes bgShift': {
+          '0%': { backgroundPosition: '0% 50%' },
+          '50%': { backgroundPosition: '100% 50%' },
+          '100%': { backgroundPosition: '0% 50%' },
+        },
+      }}
+    >
+      <Container maxWidth="sm">
         <Paper
           component={motion.div}
           initial={{ scale: 0.9, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
-          transition={{ duration: 0.3 }}
-          elevation={3}
+          transition={{ duration: 0.4, ease: 'easeOut' }}
+          elevation={0}
           sx={{
             p: 4,
             width: '100%',
             borderRadius: 3,
+            background: (theme) =>
+              theme.palette.mode === 'dark'
+                ? 'rgba(37, 37, 56, 0.6)'
+                : 'rgba(255, 255, 255, 0.45)',
+            backdropFilter: 'blur(16px)',
+            WebkitBackdropFilter: 'blur(16px)',
+            border: (theme) =>
+              theme.palette.mode === 'dark'
+                ? '1px solid rgba(255, 255, 255, 0.06)'
+                : '1px solid rgba(255, 255, 255, 0.5)',
+            boxShadow: (theme) =>
+              theme.palette.mode === 'dark'
+                ? '0 4px 24px rgba(0, 0, 0, 0.2)'
+                : '0 4px 24px rgba(0, 0, 0, 0.04)',
           }}
         >
           <Box sx={{ textAlign: 'center', mb: 4 }}>
-            <Typography
-              variant="h3"
-              component={motion.h1}
+            <Box
+              component={motion.div}
               initial={{ y: -20 }}
               animate={{ y: 0 }}
-              sx={{ fontWeight: 'bold', mb: 1 }}
+              sx={{ display: 'flex', justifyContent: 'center', mb: 1 }}
             >
-              QCard
-            </Typography>
+              <QCardLogo size={56} />
+            </Box>
             <Typography variant="body1" color="text.secondary">
               多人卡牌游戏平台
             </Typography>
@@ -140,7 +165,7 @@ export const ConnectPage: React.FC = () => {
             </Button>
           </Box>
         </Paper>
-      </Box>
-    </Container>
+      </Container>
+    </Box>
   );
 };

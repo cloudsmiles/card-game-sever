@@ -6,6 +6,7 @@ export interface SeatPlayerInfo {
   nickname: string;
   ready: boolean;
   offline: boolean;
+  is_bot?: boolean;
 }
 
 export type GameType = 'ddz' | 'mahjong' | 'durian';
@@ -16,5 +17,6 @@ export interface RoomInfo {
   game_type: GameType;
   status: RoomStatus;
   players: SeatPlayerInfo[];
+  player_count: number;
   max_players: number;
 }

@@ -173,10 +173,11 @@ export const LobbyPage: React.FC = () => {
             autoFocus
             fullWidth
             label="房间号"
-            placeholder="请输入房间号"
+            placeholder="请输入6位数字房间号"
             value={roomIdInput}
-            onChange={(e) => setRoomIdInput(e.target.value)}
+            onChange={(e) => setRoomIdInput(e.target.value.replace(/\D/g, '').slice(0, 6))}
             onKeyPress={(e) => e.key === 'Enter' && handleJoinByRoomId()}
+            inputProps={{ inputMode: 'numeric', pattern: '[0-9]*' }}
             sx={{ mt: 2 }}
           />
         </DialogContent>

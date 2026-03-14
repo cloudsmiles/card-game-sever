@@ -1,79 +1,62 @@
-import type { GameType, RoomInfo } from '@/types/room';
+import type { GameType } from '@/types/room';
+
+// 后端返回的房间信息格式
+export interface ApiRoomInfo {
+  id: string;
+  game_type: string;
+  state: string;
+  players: number;
+  max_players: number;
+}
+
+// 后端统一响应格式
+interface ApiResponse<T> {
+  code: number;
+  message: string;
+  data: T;
+}
 
 interface GetRoomsParams {
   game_type?: GameType;
   status?: 'waiting' | 'playing';
-  page?: number;
-  limit?: number;
-}
-
-interface GetRoomsResponse {
-  rooms: RoomInfo[];
-  total: number;
-  page: number;
-  limit: number;
 }
 
 class RoomApiService {
   private baseUrl: string;
 
   constructor() {
-    this.baseUrl = (import.meta as any).env?.VITE_API_URL || 'http://localhost:8080';
+    this.baseUrl = (import.meta as any).env?.VITE_API_URL || 'http://localhost:8080/api';
   }
 
-  /**
-   * Get list of rooms with optional filters
-   */
-  async getRooms(params?: GetRoomsParams): Promise<GetRoomsResponse> {
+  async getRooms(params?: GetRoomsParams): Promise<ApiRoomInfo[]> {
     try {
       const queryParams = new URLSearchParams();
-      
+
       if (params?.game_type) {
         queryParams.append('game_type', params.game_type);
       }
       if (params?.status) {
         queryParams.append('status', params.status);
       }
-      if (params?.page !== undefined) {
-        queryParams.append('page', params.page.toString());
-      }
-      if (params?.limit !== undefined) {
-        queryParams.append('limit', params.limit.toString());
-      }
 
-      const url = `${this.baseUrl}/api/rooms${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
-      
+      const qs = queryParams.toString();
+      const url = `${this.baseUrl}/rooms${qs ? `?${qs}` : ''}`;
+
       const response = await fetch(url);
-      
+
       if (!response.ok) {
         throw new Error(`Failed to fetch rooms: ${response.statusText}`);
       }
 
-      const data = await response.json();
-      return data;
-    } catch (error) {
-      console.error('[RoomAPI] Error fetching rooms:', error);
-      throw error;
-    }
-  }
+      const result: ApiResponse<ApiRoomInfo[]> = await response.json();
 
-  /**
-   * Get room details by ID
-   */
-  async getRoomById(roomId: string): Promise<RoomInfo> {
-    try {
-      const url = `${this.baseUrl}/api/rooms/${roomId}`;
-      
-      const response = await fetch(url);
-      
-      if (!response.ok) {
-        throw new Error(`Failed to fetch room: ${response.statusText}`);
+      if (result.code !== 0) {
+        throw new Error(result.message || 'Unknown error');
       }
 
-      const data = await response.json();
-      return data;
+      return result.data || [];
     } catch (error) {
-      console.error('[RoomAPI] Error fetching room:', error);
+      console.error('[RoomAPI] Error fetching rooms:', error);
       throw error;
     }
   }
