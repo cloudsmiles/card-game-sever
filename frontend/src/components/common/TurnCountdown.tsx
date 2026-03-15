@@ -13,7 +13,7 @@ export const TurnCountdown: React.FC<TurnCountdownProps> = ({ deadline, label })
 
   useEffect(() => {
     const update = () => {
-      const remaining = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+      const remaining = Math.min(30, Math.max(0, Math.ceil((deadline - Date.now()) / 1000)));
       setSeconds(remaining);
     };
     update();

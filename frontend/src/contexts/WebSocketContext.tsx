@@ -56,7 +56,7 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     const onRoomStateChanged = (data: any) => {
       console.log('[WebSocket] Room state changed:', data);
       
-      const maxPlayers = data.game_type === 'ddz' ? 3 : data.game_type === 'mahjong' ? 4 : 4;
+      const maxPlayers = data.game_type === 'ddz' ? 3 : data.game_type === 'mahjong' ? 4 : data.game_type === 'durian' ? 7 : 4;
       
       roomStore.setRoom(data.room_id, data.game_type, maxPlayers);
       roomStore.updateRoomStatus(data.state);

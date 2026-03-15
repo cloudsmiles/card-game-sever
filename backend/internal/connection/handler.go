@@ -65,29 +65,39 @@ func WSHandler(w http.ResponseWriter, r *http.Request) {
 
 	// 连接验证通过后才注册清理 defer
 	defer func() {
-		// 连接断开时清理资源
-		if playerID != "" && currentRoomID != "" {
-			roomObj, err := room.GlobalManager.GetRoom(currentRoomID)
-			if err == nil {
-				// 游戏进行中标记为断线，其他状态直接移除
-				if roomObj.State == types.RoomPlaying {
-					roomObj.MarkPlayerOffline(playerID)
-					log.Printf("玩家 [%s] 游戏中断线，已标记 [房间：%s]", playerID, currentRoomID)
-				} else {
-					isEmpty := roomObj.RemovePlayer(playerID)
-					log.Printf("玩家 [%s] 离开房间 [%s]", playerID, currentRoomID)
-					// 如果房间空了，从管理器移除
-					if isEmpty {
-						room.GlobalManager.RemoveRoom(currentRoomID)
+		// 只有当前连接仍是该玩家的注册连接时，才清理资源
+		// 避免旧连接的 defer 清理掉新连接的状态
+		connectedPlayersMu.RLock()
+		existing := connectedPlayers[playerID]
+		isCurrentConn := existing != nil && existing.conn == conn
+		connectedPlayersMu.RUnlock()
+
+		if isCurrentConn {
+			// 连接断开时清理资源
+			if playerID != "" && currentRoomID != "" {
+				roomObj, err := room.GlobalManager.GetRoom(currentRoomID)
+				if err == nil {
+					// 游戏进行中标记为断线，其他状态直接移除
+					if roomObj.State == types.RoomPlaying {
+						roomObj.MarkPlayerOffline(playerID)
+						log.Printf("玩家 [%s] 游戏中断线，已标记 [房间：%s]", playerID, currentRoomID)
+					} else {
+						isEmpty := roomObj.RemovePlayer(playerID)
+						log.Printf("玩家 [%s] 离开房间 [%s]", playerID, currentRoomID)
+						// 如果房间空了，从管理器移除
+						if isEmpty {
+							room.GlobalManager.RemoveRoom(currentRoomID)
+						}
 					}
 				}
 			}
+			// 标记玩家为已断开连接
+			unregisterPlayerConnection(playerID, conn)
+			room.GlobalNicknameTracker.RemoveNickname(playerID)
+			log.Printf("玩家已断开连接 [玩家: %s]", playerID)
+		} else {
+			log.Printf("旧连接清理跳过（已被新连接替代）[玩家: %s]", playerID)
 		}
-		// 标记玩家为已断开连接
-		unregisterPlayerConnection(playerID)
-		room.GlobalNicknameTracker.RemoveNickname(playerID)
-		log.Printf("玩家已断开连接 [玩家: %s]", playerID)
-		close(send)
 		conn.Close()
 	}()
 

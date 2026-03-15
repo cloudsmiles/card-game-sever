@@ -48,11 +48,13 @@ func registerPlayerConnection(playerID string, conn *websocket.Conn) <-chan stru
 	return kicked
 }
 
-// unregisterPlayerConnection 注销玩家连接
-func unregisterPlayerConnection(playerID string) {
+// unregisterPlayerConnection 注销玩家连接（仅当连接匹配时才注销）
+func unregisterPlayerConnection(playerID string, conn *websocket.Conn) {
 	connectedPlayersMu.Lock()
 	defer connectedPlayersMu.Unlock()
-	delete(connectedPlayers, playerID)
+	if existing, ok := connectedPlayers[playerID]; ok && existing != nil && existing.conn == conn {
+		delete(connectedPlayers, playerID)
+	}
 }
 
 // heartbeat 心跳检测，60秒无活动则关闭连接

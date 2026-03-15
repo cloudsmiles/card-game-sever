@@ -23,7 +23,7 @@ type GorillaEffect struct {
 }
 
 // CalculateInventory 计算所有玩家牌架卡的水果库存总量
-// 考虑猩猩牌效果：米奇去除数量为3的水果库存，南茜让香蕉库存无限
+// 南茜让香蕉库存无限，库存正常计算所有牌的两面
 func CalculateInventory(holderCards map[string]Card) map[FruitType]int {
 	inventory := map[FruitType]int{
 		FruitDurian:     0,
@@ -34,46 +34,20 @@ func CalculateInventory(holderCards map[string]Card) map[FruitType]int {
 
 	// 检查是否有南茜（香蕉无限）
 	hasBananaInfinite := false
-	// 检查是否有米奇（需要去除数量为3的水果）
-	hasMickey := false
 	for _, card := range holderCards {
 		if g, ok := card.(*GorillaCard); ok {
 			if g.Ability == AbilityCancelBanana {
 				hasBananaInfinite = true
 			}
-			if g.Ability == AbilityCancelCount3 {
-				hasMickey = true
-			}
 		}
 	}
 
-	// 收集需要去除的水果类型（数量为3的）
-	excludedFruits := make(map[FruitType]bool)
-	if hasMickey {
-		for _, card := range holderCards {
-			if fc, ok := card.(*FruitCard); ok {
-				if fc.LeftCount == 3 {
-					excludedFruits[fc.LeftFruit] = true
-				}
-				if fc.RightCount == 3 {
-					excludedFruits[fc.RightFruit] = true
-				}
-			}
-		}
-	}
-
-	// 计算库存
+	// 计算库存：所有牌架卡的两面都计入
 	for _, card := range holderCards {
 		switch c := card.(type) {
 		case *FruitCard:
-			// 左面：如果不是被排除的水果，则计入库存
-			if !excludedFruits[c.LeftFruit] {
-				inventory[c.LeftFruit] += c.LeftCount
-			}
-			// 右面：如果不是被排除的水果，则计入库存
-			if !excludedFruits[c.RightFruit] {
-				inventory[c.RightFruit] += c.RightCount
-			}
+			inventory[c.LeftFruit] += c.LeftCount
+			inventory[c.RightFruit] += c.RightCount
 		case *GorillaCard:
 			// 猩猩牌不贡献库存
 		}
@@ -87,8 +61,8 @@ func CalculateInventory(holderCards map[string]Card) map[FruitType]int {
 	return inventory
 }
 
-// ApplyGorillaEffects 应用猩猩兄妹牌特效（记录效果信息）
-// 实际效果已在 CalculateInventory 中处理
+// ApplyGorillaEffects 应用猩猩兄妹牌特效，修改订单
+// 米奇：去除订单中数量为3的订单；南茜：不修改订单（影响库存）
 func ApplyGorillaEffects(orders map[FruitType]int, holderCards map[string]Card) (map[FruitType]int, []GorillaEffect) {
 	result := copyOrders(orders)
 	effects := make([]GorillaEffect, 0)
@@ -97,34 +71,26 @@ func ApplyGorillaEffects(orders map[FruitType]int, holderCards map[string]Card) 
 		if g, ok := card.(*GorillaCard); ok {
 			switch g.Ability {
 			case AbilityCancelBanana:
-				// 南茜：香蕉库存无限
+				// 南茜：香蕉库存无限（在 CalculateInventory 中处理）
 				effects = append(effects, GorillaEffect{
 					PlayerID:        playerID,
 					Ability:         g.Ability,
-					CancelledOrders: 0, // 不是取消订单，而是库存无限
+					CancelledOrders: 0,
 				})
 
 			case AbilityCancelCount3:
-				// 米奇：去除数量为3的水果库存
-				// 计算被去除的库存数量
-				excludedFruits := make(map[FruitType]bool)
-				excludedCount := 0
-				for _, c := range holderCards {
-					if fc, ok := c.(*FruitCard); ok {
-						if fc.LeftCount == 3 {
-							excludedFruits[fc.LeftFruit] = true
-							excludedCount += fc.LeftCount
-						}
-						if fc.RightCount == 3 {
-							excludedFruits[fc.RightFruit] = true
-							excludedCount += fc.RightCount
-						}
+				// 米奇：去除订单中数量为3的订单
+				cancelledCount := 0
+				for fruit, count := range result {
+					if count == 3 {
+						cancelledCount += count
+						result[fruit] = 0
 					}
 				}
 				effects = append(effects, GorillaEffect{
 					PlayerID:        playerID,
 					Ability:         g.Ability,
-					CancelledOrders: excludedCount,
+					CancelledOrders: cancelledCount,
 				})
 
 			case AbilityDoNothing:

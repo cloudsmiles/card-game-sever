@@ -18,6 +18,7 @@ import { useUIStore } from '@/stores/uiStore';
 import { PlayerList, ReadyButton } from '@/components/room';
 import { DDZGame } from '@/games/ddz';
 import { MahjongGame } from '@/games/mahjong';
+import { DurianGame } from '@/games/durian';
 
 const gameTypeNames: Record<string, string> = {
   ddz: '斗地主',
@@ -160,13 +161,7 @@ export const RoomPage: React.FC = () => {
           <Box>
             {gameType === 'ddz' && <DDZGame />}
             {gameType === 'mahjong' && <MahjongGame />}
-            {gameType === 'durian' && (
-              <Paper sx={{ p: 4, textAlign: 'center' }}>
-                <Typography variant="h6" color="text.secondary">
-                  榴莲忘返游戏开发中...
-                </Typography>
-              </Paper>
-            )}
+            {gameType === 'durian' && <DurianGame />}
           </Box>
         )}
       </Box>
