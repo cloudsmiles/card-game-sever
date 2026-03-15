@@ -80,6 +80,10 @@ type MahjongGame struct {
 	turnTimer    *time.Timer // 回合操作超时定时器
 	pendingTimer *time.Timer // 等待响应超时定时器
 
+	// 截止时间（用于前端倒计时显示）
+	turnDeadline    time.Time // 回合操作截止时间
+	pendingDeadline time.Time // 等待响应截止时间
+
 	// 超时回调（通知房间层执行自动操作）
 	onTurnTimeout    func(playerID string) // 回合操作超时回调
 	onPendingTimeout func()                // 等待响应超时回调
@@ -136,9 +140,7 @@ func (g *MahjongGame) Init(players []string) error {
 	g.currentSeat = g.dealerSeat
 	g.phase = PhasePlay
 
-	// 启动第一个玩家的出牌定时器
-	g.startTurnTimer()
-
+	// 注意：定时器在 SetTimeoutCallbacks 设置回调后启动
 	log.Printf("[麻将] 游戏初始化完成，庄家座位:%d，牌墙剩余:%d", g.dealerSeat, len(g.wall))
 	return nil
 }
@@ -154,6 +156,8 @@ func (g *MahjongGame) SetTimeoutCallbacks(
 ) {
 	g.onTurnTimeout = onTurnTimeout
 	g.onPendingTimeout = onPendingTimeout
+	// 回调设置完成后，启动第一个回合的定时器
+	g.startTurnTimer()
 }
 
 // HandleTurnTimeout 处理回合操作超时（游戏层自己决定如何处理）
@@ -185,6 +189,7 @@ func (g *MahjongGame) HandlePendingTimeout() error {
 // startTurnTimer 启动回合操作超时定时器（游戏层自己管理）
 func (g *MahjongGame) startTurnTimer() {
 	g.stopTurnTimer()
+	g.turnDeadline = time.Now().Add(30 * time.Second)
 
 	g.turnTimer = time.AfterFunc(30*time.Second, func() {
 		// 回合操作超时，通知房间层
@@ -206,6 +211,7 @@ func (g *MahjongGame) stopTurnTimer() {
 func (g *MahjongGame) startPendingTimer() {
 	g.stopPendingTimer()
 
+	g.pendingDeadline = time.Now().Add(10 * time.Second)
 	log.Printf("[麻将] 启动等待响应定时器（10秒）")
 	g.pendingTimer = time.AfterFunc(10*time.Second, func() {
 		log.Printf("[麻将] 等待响应定时器触发")
@@ -831,14 +837,16 @@ func (g *MahjongGame) GetState() interface{} {
 	}
 
 	state := map[string]interface{}{
-		"phase":          g.phase,
-		"current_seat":   g.currentSeat,
-		"current":        g.players[g.currentSeat],
-		"dealer_seat":    g.dealerSeat,
-		"wall_remaining": len(g.wall),
-		"players":        playersInfo,
-		"game_over":      g.gameOver,
-		"winner":         g.winner,
+		"phase":            g.phase,
+		"current_seat":     g.currentSeat,
+		"current":          g.players[g.currentSeat],
+		"dealer_seat":      g.dealerSeat,
+		"wall_remaining":   len(g.wall),
+		"players":          playersInfo,
+		"game_over":        g.gameOver,
+		"winner":           g.winner,
+		"turn_deadline":    g.turnDeadline.UnixMilli(),
+		"pending_deadline": g.pendingDeadline.UnixMilli(),
 	}
 
 	if g.lastDiscard != nil {
@@ -961,4 +969,50 @@ func containsStr(slice []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// === BotPlayer 接口实现 ===
+
+// NeedsBotCheckAfterAction 麻将需要在每次操作后检查所有机器人
+// 因为pending阶段任何玩家都可能需要响应（吃碰杠胡）
+func (g *MahjongGame) NeedsBotCheckAfterAction() bool {
+	return true
+}
+
+// GetBotAction 获取指定机器人的操作
+// 返回 nil 表示该机器人当前无需操作
+func (g *MahjongGame) GetBotAction(botID string) *interfaces.Action {
+	seat, ok := g.playerSeats[botID]
+	if !ok {
+		return nil
+	}
+
+	actions := g.getAvailableActions(seat)
+	if len(actions) == 0 {
+		return nil
+	}
+
+	switch g.phase {
+	case PhasePlay:
+		// 出牌阶段：打出最后一张牌（刚摸的）
+		if seat != g.currentSeat {
+			return nil
+		}
+		hand := g.hands[seat]
+		if len(hand) == 0 {
+			return &interfaces.Action{Type: ActionDiscard, Data: nil}
+		}
+		lastTile := hand[len(hand)-1]
+		return &interfaces.Action{
+			Type: ActionDiscard,
+			Data: lastTile.ToMap(),
+		}
+
+	case PhasePending:
+		// 响应阶段：简单AI，总是pass
+		return &interfaces.Action{Type: ActionPass}
+
+	default:
+		return nil
+	}
 }

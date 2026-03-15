@@ -27,6 +27,12 @@ func (r *Room) onTurnTimeout(playerID string) {
 		return
 	}
 
+	// 检查当前回合是否仍然是该玩家（可能玩家已经操作，回合已推进）
+	if r.Game.CurrentTurn() != playerID {
+		log.Printf("[房间：%s] 玩家 %s 超时回调触发，但回合已推进，忽略", r.ID, playerID)
+		return
+	}
+
 	log.Printf("[房间：%s] 玩家 %s 回合操作超时，委托游戏层处理", r.ID, playerID)
 
 	// 委托游戏层自己处理超时逻辑
@@ -52,6 +58,9 @@ func (r *Room) onTurnTimeout(playerID string) {
 		}
 		return
 	}
+
+	// 超时后触发机器人检查
+	r.triggerBotCheck()
 }
 
 // onPendingTimeout 等待响应超时回调（由游戏层调用）
@@ -77,4 +86,7 @@ func (r *Room) onPendingTimeout() {
 	}
 
 	r.broadcastState()
+
+	// pending超时后触发机器人检查
+	r.triggerBotCheck()
 }

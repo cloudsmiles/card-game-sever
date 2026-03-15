@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 
 	"card-game-server/backend/internal/room"
 	"card-game-server/backend/internal/types"
@@ -39,19 +40,15 @@ func WSHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	room.GlobalNicknameTracker.SetNickname(playerID, nickname)
 
-	// 检查玩家是否已连接（防止同一playerID多次连接）
-	if isPlayerConnected(playerID) {
-		log.Printf("拒绝重复连接 [玩家: %s]", playerID)
-		sendErrorMessage(conn, types.ErrorData{
-			Code:    types.ErrPlayerAlreadyConnectedCode,
-			Message: "该玩家已在其他连接中登录",
-		})
-		conn.Close()
-		return
+	// 如果玩家已有连接，踢掉旧连接
+	if kickExistingConnection(playerID) {
+		log.Printf("玩家 [%s] 重新登录，已踢掉旧连接", playerID)
+		// 等一小段时间让旧连接清理完成
+		time.Sleep(100 * time.Millisecond)
 	}
 
-	// 标记玩家为已连接
-	setPlayerConnected(playerID, true)
+	// 注册新连接，获取被踢通知channel
+	kickedChan := registerPlayerConnection(playerID, conn)
 	log.Printf("玩家已连接 [玩家: %s]", playerID)
 
 	// 检查是否是断线重连
@@ -87,7 +84,7 @@ func WSHandler(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		// 标记玩家为已断开连接
-		setPlayerConnected(playerID, false)
+		unregisterPlayerConnection(playerID)
 		room.GlobalNicknameTracker.RemoveNickname(playerID)
 		log.Printf("玩家已断开连接 [玩家: %s]", playerID)
 		close(send)
@@ -103,6 +100,9 @@ func WSHandler(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-heartbeatDone:
 			log.Printf("心跳超时，连接断开 [%s]", playerID)
+			return
+		case <-kickedChan:
+			log.Printf("被新连接踢掉 [%s]", playerID)
 			return
 		default:
 		}

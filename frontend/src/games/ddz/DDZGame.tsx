@@ -10,6 +10,7 @@ import { useGameStore } from '@/stores/gameStore';
 import { useRoomStore } from '@/stores/roomStore';
 import { useUserStore } from '@/stores/userStore';
 import { useWebSocket } from '@/hooks/useWebSocket';
+import { TurnCountdown } from '@/components/common/TurnCountdown';
 import type { DDZServerState, DDZPlayerInfo } from './types';
 
 export const DDZGame: React.FC = () => {
@@ -134,6 +135,7 @@ export const DDZGame: React.FC = () => {
           rightPlayer={rightPlayer}
           bottomCards={state.bottom}
           lastPlay={state.last_play}
+          lastActions={state.last_actions || {}}
           currentTurn={state.current}
           phase={phase}
           myPlayerId={playerId}
@@ -182,6 +184,9 @@ export const DDZGame: React.FC = () => {
             ? phase === 'call' ? '轮到你叫地主' : '轮到你出牌'
             : '等待其他玩家...'}
         </Typography>
+        <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+          <TurnCountdown deadline={state.turn_deadline} label={isMyTurn ? '倒计时' : ''} />
+        </Box>
       </Paper>
     </Box>
   );

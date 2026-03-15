@@ -114,6 +114,28 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ roomOnly = false }) => {
         ) : (
           messages.map((msg) => {
             const isOwn = msg.playerId === playerId;
+            const isSystem = msg.playerId === 'system';
+
+            if (isSystem) {
+              return (
+                <Box
+                  key={msg.id}
+                  component={motion.div}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  sx={{ display: 'flex', justifyContent: 'center', py: 0.5 }}
+                >
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{ bgcolor: 'action.hover', px: 1.5, py: 0.5, borderRadius: 2, fontSize: '0.7rem' }}
+                  >
+                    {msg.content}
+                  </Typography>
+                </Box>
+              );
+            }
+
             return (
               <Box
                 key={msg.id}

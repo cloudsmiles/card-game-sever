@@ -24,6 +24,12 @@ export interface LastPlay {
   Cards: Array<{ Value: number }>;
 }
 
+export interface PlayerAction {
+  type: 'play' | 'pass' | 'call';
+  cards?: Array<{ Value: number }>;
+  score?: number;
+}
+
 // Backend state_update structure
 export interface DDZServerState {
   phase: 'call' | 'play';
@@ -34,11 +40,13 @@ export interface DDZServerState {
   current: string;
   current_seat: number;
   last_play: LastPlay;
+  last_actions: Record<string, PlayerAction>;
   game_over: boolean;
   winner: string;
   hand_counts: Record<string, number>;
   bottom: number[] | null;
   my_hand: number[];
+  turn_deadline: number; // Unix毫秒时间戳
 }
 
 export interface DDZAction {

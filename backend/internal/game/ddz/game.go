@@ -2,6 +2,7 @@ package ddz
 
 import (
 	"fmt"
+	"log"
 	"math/rand"
 	"sort"
 	"strconv"
@@ -32,6 +33,22 @@ type DdzGame struct {
 	phase       string // "call" 或 "play"
 	gameOver    bool
 	winner      string
+
+	// 每个玩家最近一次出牌/pass记录（用于前端显示）
+	lastActions map[string]*PlayerAction
+
+	// 超时相关
+	turnTimer        *time.Timer           // 回合操作超时定时器
+	turnDeadline     time.Time             // 当前回合截止时间
+	onTurnTimeout    func(playerID string) // 回合操作超时回调
+	onPendingTimeout func()                // 未使用，但需实现接口
+}
+
+// PlayerAction 玩家最近一次操作
+type PlayerAction struct {
+	Type  string `json:"type"`  // "play" | "pass" | "call"
+	Cards Hand   `json:"cards"` // 出的牌（pass时为空）
+	Score int    `json:"score"` // 叫分（仅call时有效）
 }
 
 type Play struct {
@@ -71,9 +88,13 @@ func (g *DdzGame) Init(players []string) error {
 	g.landlord = ""
 	g.gameOver = false
 	g.winner = ""
+	g.lastActions = make(map[string]*PlayerAction)
 	rand.Seed(time.Now().UnixNano())
 
 	g.dealCards()
+
+	// 注意：定时器在 setupGameTimers 设置回调后由房间层启动
+	// 这里先记录截止时间，实际定时器在 SetTimeoutCallbacks 后启动
 	return nil
 }
 
@@ -152,7 +173,8 @@ func (g *DdzGame) ProcessAction(playerID string, action interface{}) (bool, erro
 		}
 
 		g.calls[playerID] = score
-		g.callTurn = (g.callTurn + 1) % 3
+		g.lastActions[playerID] = &PlayerAction{Type: "call", Score: score}
+		g.callTurn = (g.callTurn + 2) % 3 // 逆时针
 
 		// 判断是否结束叫地主
 		if score == 3 || g.callTurn == 0 {
@@ -173,9 +195,11 @@ func (g *DdzGame) ProcessAction(playerID string, action interface{}) (bool, erro
 			sort.Sort(g.hands[landlord])
 			g.phase = "play"
 			g.outTurn = indexOf(g.players, landlord)
-			return true, nil // 阶段切换
+			g.startTurnTimer() // 地主开始出牌，重启定时器
+			return true, nil   // 阶段切换
 		}
-		return false, nil // 继续叫地主
+		g.startTurnTimer() // 下一个人叫地主
+		return false, nil  // 继续叫地主
 
 	case "play":
 		if act.Type == "pass" {
@@ -184,16 +208,21 @@ func (g *DdzGame) ProcessAction(playerID string, action interface{}) (bool, erro
 				return false, fmt.Errorf("新回合第一手牌必须出牌，不能pass")
 			}
 
+			g.lastActions[playerID] = &PlayerAction{Type: "pass"}
 			g.passCount++
-			g.outTurn = (g.outTurn + 1) % 3
+			g.outTurn = (g.outTurn + 2) % 3 // 逆时针
 
 			// 如果所有人都pass了（连续2次pass），则最后出牌的人重新获得出牌权
 			if g.passCount >= 2 && g.lastPlayer != "" {
 				g.outTurn = indexOf(g.players, g.lastPlayer)
 				g.passCount = 0
 				g.lastPlay = Play{} // 清空上一手牌
-				return true, nil    // 回合结束，重新开始
+				// 新回合清空所有玩家的最近操作
+				g.lastActions = make(map[string]*PlayerAction)
+				g.startTurnTimer() // 新回合，重启定时器
+				return true, nil   // 回合结束，重新开始
 			}
+			g.startTurnTimer() // 下一个人出牌
 			return false, nil
 		}
 
@@ -252,8 +281,9 @@ func (g *DdzGame) ProcessAction(playerID string, action interface{}) (bool, erro
 		// 更新游戏状态
 		g.lastPlay = Play{Type: playType, Cards: played}
 		g.lastPlayer = playerID
-		g.passCount = 0 // 有人出牌，重置pass计数
-		g.outTurn = (g.outTurn + 1) % 3
+		g.lastActions[playerID] = &PlayerAction{Type: "play", Cards: played}
+		g.passCount = 0                 // 有人出牌，重置pass计数
+		g.outTurn = (g.outTurn + 2) % 3 // 逆时针
 
 		remainingCards := len(g.hands[playerID])
 		turnEnd := remainingCards == 0
@@ -262,6 +292,7 @@ func (g *DdzGame) ProcessAction(playerID string, action interface{}) (bool, erro
 		if turnEnd {
 			fmt.Printf("设置 gameOver=true\n")
 			g.gameOver = true
+			g.stopTurnTimer() // 游戏结束，停止定时器
 			if playerID == g.landlord {
 				g.winner = "地主胜"
 			} else {
@@ -281,6 +312,7 @@ func (g *DdzGame) ProcessAction(playerID string, action interface{}) (bool, erro
 			}
 			return true, nil
 		}
+		g.startTurnTimer() // 下一个人出牌
 		return false, nil
 
 		// // 测试模式：第一张牌直接获胜
@@ -299,6 +331,81 @@ func (g *DdzGame) ProcessAction(playerID string, action interface{}) (bool, erro
 
 func (g *DdzGame) AdvanceTurn() {
 	// 本游戏中 AdvanceTurn 由 ProcessAction 内部控制，不额外调用
+}
+
+// ── TimeoutHandler 接口实现 ──
+
+// SetTimeoutCallbacks 设置超时回调函数（由房间层调用）
+func (g *DdzGame) SetTimeoutCallbacks(
+	onTurnTimeout func(playerID string),
+	onPendingTimeout func(),
+) {
+	g.onTurnTimeout = onTurnTimeout
+	g.onPendingTimeout = onPendingTimeout
+	// 回调设置完成后，启动第一个回合的定时器
+	g.startTurnTimer()
+}
+
+// HandleTurnTimeout 处理回合操作超时
+func (g *DdzGame) HandleTurnTimeout(playerID string) error {
+	// 如果游戏已结束，忽略超时
+	if g.gameOver {
+		return nil
+	}
+	// 如果当前回合已经不是该玩家，说明玩家已经操作过了，忽略超时
+	if g.CurrentTurn() != playerID {
+		log.Printf("[斗地主] 玩家 %s 超时回调触发，但当前回合已变更，忽略", playerID)
+		return nil
+	}
+	log.Printf("[斗地主] 玩家 %s 回合超时，自动处理", playerID)
+	if g.phase == "call" {
+		// 叫地主超时：自动叫0分（不叫）
+		action := interfaces.Action{Type: "call_landlord", Data: float64(0)}
+		_, err := g.ProcessAction(playerID, action)
+		return err
+	}
+	// 出牌超时
+	if g.lastPlay.Type == "" {
+		// 新回合必须出牌，不能pass：自动出最小的一张牌
+		hand := g.hands[playerID]
+		if len(hand) > 0 {
+			smallest := hand[0]
+			action := interfaces.Action{
+				Type: "play_cards",
+				Data: []interface{}{map[string]interface{}{"value": float64(smallest.Value)}},
+			}
+			_, err := g.ProcessAction(playerID, action)
+			return err
+		}
+	}
+	// 有上家出牌：自动pass
+	action := interfaces.Action{Type: "pass"}
+	_, err := g.ProcessAction(playerID, action)
+	return err
+}
+
+// HandlePendingTimeout DDZ没有pending阶段，空实现
+func (g *DdzGame) HandlePendingTimeout() error {
+	return nil
+}
+
+// startTurnTimer 启动回合操作超时定时器
+func (g *DdzGame) startTurnTimer() {
+	g.stopTurnTimer()
+	g.turnDeadline = time.Now().Add(30 * time.Second)
+	g.turnTimer = time.AfterFunc(30*time.Second, func() {
+		if g.onTurnTimeout != nil {
+			g.onTurnTimeout(g.CurrentTurn())
+		}
+	})
+}
+
+// stopTurnTimer 停止回合操作超时定时器
+func (g *DdzGame) stopTurnTimer() {
+	if g.turnTimer != nil {
+		g.turnTimer.Stop()
+		g.turnTimer = nil
+	}
 }
 
 // GetState 返回游戏状态（不包含具体手牌，只返回手牌数量）
@@ -323,18 +430,20 @@ func (g *DdzGame) GetState() interface{} {
 	}
 
 	return map[string]interface{}{
-		"phase":        g.phase,
-		"players":      g.players,
-		"player_infos": playerInfos,
-		"player_seats": g.playerSeats,
-		"landlord":     g.landlord,
-		"current":      g.CurrentTurn(),
-		"current_seat": g.getCurrentSeat(),
-		"last_play":    g.lastPlay,
-		"game_over":    g.gameOver,
-		"winner":       g.winner,
-		"hand_counts":  handCounts, // 各玩家手牌数量
-		"bottom":       g.bottomCardsForState(),
+		"phase":         g.phase,
+		"players":       g.players,
+		"player_infos":  playerInfos,
+		"player_seats":  g.playerSeats,
+		"landlord":      g.landlord,
+		"current":       g.CurrentTurn(),
+		"current_seat":  g.getCurrentSeat(),
+		"last_play":     g.lastPlay,
+		"last_actions":  g.lastActions,
+		"game_over":     g.gameOver,
+		"winner":        g.winner,
+		"hand_counts":   handCounts, // 各玩家手牌数量
+		"bottom":        g.bottomCardsForState(),
+		"turn_deadline": g.turnDeadline.UnixMilli(),
 	}
 }
 
@@ -851,4 +960,151 @@ func valueToStr(value int) string {
 	default:
 		return fmt.Sprintf("%d", value)
 	}
+}
+
+// === BotPlayer 接口实现 ===
+
+// NeedsBotCheckAfterAction 斗地主只需在轮到机器人时检查
+func (g *DdzGame) NeedsBotCheckAfterAction() bool {
+	return false
+}
+
+// GetBotAction 获取指定机器人的操作
+func (g *DdzGame) GetBotAction(botID string) *interfaces.Action {
+	state := g.GetStateForPlayer(botID)
+	stateMap, ok := state.(map[string]interface{})
+	if !ok {
+		return nil
+	}
+
+	phase, _ := stateMap["phase"].(string)
+
+	switch phase {
+	case "call":
+		return g.botCallAction()
+	case "play":
+		return g.botPlayAction(stateMap)
+	default:
+		return nil
+	}
+}
+
+// botCallAction 机器人叫地主策略
+func (g *DdzGame) botCallAction() *interfaces.Action {
+	score := rand.Intn(3) // 0, 1, 2
+	return &interfaces.Action{
+		Type: "call_landlord",
+		Data: float64(score),
+	}
+}
+
+// botPlayAction 机器人出牌策略
+func (g *DdzGame) botPlayAction(stateMap map[string]interface{}) *interfaces.Action {
+	myHandRaw, ok := stateMap["my_hand"].([]int)
+	if !ok || len(myHandRaw) == 0 {
+		return &interfaces.Action{Type: "pass"}
+	}
+	myHand := myHandRaw
+
+	// 解析上一手牌
+	lastPlayRaw := stateMap["last_play"]
+	lastType := ""
+	var lastCardValues []int
+
+	if lastPlayRaw != nil {
+		// 同进程调用，直接类型断言
+		if lp, ok := lastPlayRaw.(Play); ok {
+			lastType = lp.Type
+			for _, c := range lp.Cards {
+				lastCardValues = append(lastCardValues, c.Value)
+			}
+		}
+	}
+
+	// 新回合，出最小的单牌
+	if lastType == "" {
+		return &interfaces.Action{
+			Type: "play_cards",
+			Data: []interface{}{map[string]interface{}{"value": float64(myHand[0])}},
+		}
+	}
+
+	lastMaxValue := 0
+	if len(lastCardValues) > 0 {
+		sort.Ints(lastCardValues)
+		lastMaxValue = lastCardValues[0]
+	}
+
+	// 尝试压制
+	switch lastType {
+	case "single":
+		for _, v := range myHand {
+			if v > lastMaxValue {
+				return &interfaces.Action{
+					Type: "play_cards",
+					Data: []interface{}{map[string]interface{}{"value": float64(v)}},
+				}
+			}
+		}
+	case "pair":
+		for _, pv := range findGroups(myHand, 2) {
+			if pv > lastMaxValue {
+				return &interfaces.Action{
+					Type: "play_cards",
+					Data: []interface{}{
+						map[string]interface{}{"value": float64(pv)},
+						map[string]interface{}{"value": float64(pv)},
+					},
+				}
+			}
+		}
+	case "triple":
+		for _, tv := range findGroups(myHand, 3) {
+			if tv > lastMaxValue {
+				cards := make([]interface{}, 3)
+				for i := range cards {
+					cards[i] = map[string]interface{}{"value": float64(tv)}
+				}
+				return &interfaces.Action{Type: "play_cards", Data: cards}
+			}
+		}
+	case "bomb":
+		for _, qv := range findGroups(myHand, 4) {
+			if qv > lastMaxValue {
+				cards := make([]interface{}, 4)
+				for i := range cards {
+					cards[i] = map[string]interface{}{"value": float64(qv)}
+				}
+				return &interfaces.Action{Type: "play_cards", Data: cards}
+			}
+		}
+	default:
+		// 复杂牌型，尝试用炸弹
+		quads := findGroups(myHand, 4)
+		if len(quads) > 0 {
+			cards := make([]interface{}, 4)
+			for i := range cards {
+				cards[i] = map[string]interface{}{"value": float64(quads[0])}
+			}
+			return &interfaces.Action{Type: "play_cards", Data: cards}
+		}
+	}
+
+	return &interfaces.Action{Type: "pass"}
+}
+
+// findGroups 在手牌中找到所有 count 张相同的牌值（已排序）
+func findGroups(hand []int, count int) []int {
+	countMap := make(map[int]int)
+	for _, v := range hand {
+		countMap[v]++
+	}
+	var result []int
+	for v, c := range countMap {
+		if c >= count {
+			result = append(result, v)
+		}
+	}
+	sort.Ints(result)
+	return result
 }

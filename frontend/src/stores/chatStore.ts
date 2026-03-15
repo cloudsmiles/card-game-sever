@@ -21,16 +21,28 @@ export const useChatStore = create<ChatState>()(
       messages: [],
 
       addMessage: (msg) =>
-        set((state) => ({
-          messages: [
-            ...state.messages,
-            {
-              ...msg,
-              id: `${Date.now()}-${Math.random()}`,
-              timestamp: Date.now(),
-            },
-          ],
-        })),
+        set((state) => {
+          // Deduplicate: skip if same content from same player within 2 seconds
+          const now = Date.now();
+          const isDuplicate = state.messages.some(
+            (m) =>
+              m.playerId === msg.playerId &&
+              m.content === msg.content &&
+              now - m.timestamp < 2000
+          );
+          if (isDuplicate) return state;
+
+          return {
+            messages: [
+              ...state.messages,
+              {
+                ...msg,
+                id: `${now}-${Math.random()}`,
+                timestamp: now,
+              },
+            ],
+          };
+        }),
 
       clearMessages: () => set({ messages: [] }),
     }),

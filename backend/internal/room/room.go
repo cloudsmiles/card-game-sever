@@ -299,12 +299,43 @@ func (r *Room) RemovePlayer(playerID string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// 释放座位
 	client, exists := r.Players[playerID]
 	if !exists {
 		return len(r.Players) == 0
 	}
 
+	// 如果游戏进行中，玩家离开则立即结束游戏
+	if r.State == types.RoomPlaying {
+		nickname := GlobalNicknameTracker.GetNickname(playerID)
+		log.Printf("玩家 [%s] 在游戏中离开房间，游戏立即结束 [房间：%s]", playerID, r.ID)
+
+		// 停止所有定时器
+		if r.disconnectTimer != nil {
+			r.disconnectTimer.Stop()
+			r.disconnectTimer = nil
+		}
+
+		// 广播游戏结束
+		r.Broadcast(types.Message{
+			Type: types.Broadcast,
+			Data: types.BroadcastData{
+				Event:   types.GameFinished,
+				Content: map[string]string{"winner": fmt.Sprintf("玩家 %s 离开，游戏结束", nickname)},
+			},
+		})
+
+		// 重置房间状态
+		r.State = types.RoomWaiting
+		for pid := range r.Ready {
+			r.Ready[pid] = false
+		}
+		for botID := range r.Bots {
+			r.Ready[botID] = true
+		}
+		r.OfflinePlayers = make(map[string]time.Time)
+	}
+
+	// 释放座位
 	if client.SeatNumber >= 0 {
 		delete(r.Seats, client.SeatNumber)
 	}
@@ -571,11 +602,8 @@ func (r *Room) ProcessGameAction(playerID string, data types.GameActionData) err
 		return nil
 	}
 
-	// 检查下一个玩家是否是机器人
-	nextPlayer := r.Game.CurrentTurn()
-	if r.Bots[nextPlayer] {
-		go r.checkBotTurn()
-	}
+	// 通过接口触发机器人检查（游戏无关）
+	r.triggerBotCheck()
 
 	return nil
 }

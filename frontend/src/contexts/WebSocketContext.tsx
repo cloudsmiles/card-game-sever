@@ -27,34 +27,33 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const chatStore = useChatStore();
 
   useEffect(() => {
-    // Handle connection events
-    wsService.on('connected', () => {
+    // Define all handlers so we can clean them up
+    const onConnected = () => {
       setIsConnected(true);
       connectionStore.setStatus('connected');
       connectionStore.resetReconnectAttempts();
-    });
+    };
 
-    wsService.on('disconnected', () => {
+    const onDisconnected = () => {
       setIsConnected(false);
       connectionStore.setStatus('disconnected');
-    });
+    };
 
-    wsService.on('reconnecting', () => {
+    const onReconnecting = () => {
       connectionStore.setStatus('reconnecting');
       connectionStore.incrementReconnectAttempts();
-    });
+    };
 
-    wsService.on('error', (error: any) => {
+    const onError = (error: any) => {
       console.error('[WebSocket] Error:', error);
       connectionStore.setError(error.message || 'Connection error');
       uiStore.addNotification({
         type: 'error',
         message: error.message || 'WebSocket connection error',
       });
-    });
+    };
 
-    // Handle room state changes
-    wsService.on('room_state_changed', (data: any) => {
+    const onRoomStateChanged = (data: any) => {
       console.log('[WebSocket] Room state changed:', data);
       
       const maxPlayers = data.game_type === 'ddz' ? 3 : data.game_type === 'mahjong' ? 4 : 4;
@@ -72,68 +71,86 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         }))
       );
 
-      if (data.message) {
-        uiStore.addNotification({
-          type: 'info',
-          message: data.message,
+      // Show room messages in chat, but filter out game-over messages
+      // (game over is already shown via notification + in-game UI)
+      if (data.message && !data.message.startsWith('游戏结束')) {
+        chatStore.addMessage({
+          playerId: 'system',
+          nickname: '系统',
+          content: data.message,
         });
       }
-    });
+    };
 
-    // Handle game state updates
-    wsService.on('state_update', (data: any) => {
+    const onStateUpdate = (data: any) => {
       console.log('[WebSocket] Game state update:', data);
       gameStore.setGameData(data);
-    });
+    };
 
-    // Handle game started
-    wsService.on('game_started', (data: any) => {
+    const onGameStarted = (data: any) => {
       console.log('[WebSocket] Game started:', data);
       roomStore.updateRoomStatus('playing');
-      // The game_started event contains the initial game state
       if (data && Object.keys(data).length > 0) {
         gameStore.setGameData(data);
       }
-      
       uiStore.addNotification({
         type: 'success',
         message: '游戏开始！',
       });
-    });
+    };
 
-    // Handle game over
-    wsService.on('game_over', (data: any) => {
+    const onGameOver = (data: any) => {
       console.log('[WebSocket] Game over:', data);
       roomStore.updateRoomStatus('waiting');
       
-      if (data.message) {
-        uiStore.addNotification({
-          type: 'info',
-          message: data.message,
-        });
-      }
-    });
+      const winner = data?.winner || '未知';
+      uiStore.addNotification({
+        type: 'info',
+        message: `游戏结束 - ${winner}`,
+        duration: 8000,
+      });
+    };
 
-    // Handle room left confirmation
-    wsService.on('room_left', () => {
+    const onRoomLeft = () => {
       console.log('[WebSocket] Room left confirmed');
       roomStore.leaveRoom();
       gameStore.resetGame();
       chatStore.clearMessages();
-    });
+    };
 
-    // Handle chat messages (backend broadcasts event as "chat")
-    wsService.on('chat', (data: any) => {
+    const onChat = (data: any) => {
       console.log('[WebSocket] Chat message:', data);
       chatStore.addMessage({
         playerId: data.player_id,
         nickname: data.nickname || data.player_id,
         content: data.content,
       });
-    });
+    };
+
+    // Register all handlers
+    wsService.on('connected', onConnected);
+    wsService.on('disconnected', onDisconnected);
+    wsService.on('reconnecting', onReconnecting);
+    wsService.on('error', onError);
+    wsService.on('room_state_changed', onRoomStateChanged);
+    wsService.on('state_update', onStateUpdate);
+    wsService.on('game_started', onGameStarted);
+    wsService.on('game_over', onGameOver);
+    wsService.on('room_left', onRoomLeft);
+    wsService.on('chat', onChat);
 
     return () => {
-      wsService.disconnect();
+      // Cleanup: remove all handlers to prevent duplicates on re-mount
+      wsService.off('connected', onConnected);
+      wsService.off('disconnected', onDisconnected);
+      wsService.off('reconnecting', onReconnecting);
+      wsService.off('error', onError);
+      wsService.off('room_state_changed', onRoomStateChanged);
+      wsService.off('state_update', onStateUpdate);
+      wsService.off('game_started', onGameStarted);
+      wsService.off('game_over', onGameOver);
+      wsService.off('room_left', onRoomLeft);
+      wsService.off('chat', onChat);
     };
   }, []);
 

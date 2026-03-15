@@ -1,56 +1,78 @@
 package connection
 
 import (
+	"log"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
 )
 
-// connectedPlayers 追踪已连接的玩家（防止同一playerID多次连接）
-var connectedPlayers = make(map[string]bool)
+// playerConnection 存储玩家的连接信息
+type playerConnection struct {
+	conn *websocket.Conn
+	send chan struct{} // 关闭此channel通知旧连接断开
+}
+
+// connectedPlayers 追踪已连接的玩家
+var connectedPlayers = make(map[string]*playerConnection)
 var connectedPlayersMu sync.RWMutex
 
 // isPlayerConnected 检查玩家是否已连接
 func isPlayerConnected(playerID string) bool {
 	connectedPlayersMu.RLock()
 	defer connectedPlayersMu.RUnlock()
-	return connectedPlayers[playerID]
+	return connectedPlayers[playerID] != nil
 }
 
-// setPlayerConnected 设置玩家连接状态
-func setPlayerConnected(playerID string, connected bool) {
+// kickExistingConnection 踢掉已有连接，返回true表示踢掉了旧连接
+func kickExistingConnection(playerID string) bool {
 	connectedPlayersMu.Lock()
 	defer connectedPlayersMu.Unlock()
-	if connected {
-		connectedPlayers[playerID] = true
-	} else {
+	if existing, ok := connectedPlayers[playerID]; ok && existing != nil {
+		log.Printf("踢掉玩家 [%s] 的旧连接", playerID)
+		close(existing.send) // 通知旧连接关闭
+		existing.conn.Close()
 		delete(connectedPlayers, playerID)
+		return true
 	}
+	return false
+}
+
+// registerPlayerConnection 注册玩家连接
+func registerPlayerConnection(playerID string, conn *websocket.Conn) <-chan struct{} {
+	connectedPlayersMu.Lock()
+	defer connectedPlayersMu.Unlock()
+	kicked := make(chan struct{})
+	connectedPlayers[playerID] = &playerConnection{conn: conn, send: kicked}
+	return kicked
+}
+
+// unregisterPlayerConnection 注销玩家连接
+func unregisterPlayerConnection(playerID string) {
+	connectedPlayersMu.Lock()
+	defer connectedPlayersMu.Unlock()
+	delete(connectedPlayers, playerID)
 }
 
 // heartbeat 心跳检测，60秒无活动则关闭连接
-// 返回一个channel，当心跳检测到超时时会关闭该channel
 func heartbeat(conn *websocket.Conn, playerID string) <-chan struct{} {
 	done := make(chan struct{})
 
 	go func() {
 		defer close(done)
 
-		// 设置读取超时和心跳检测
 		conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 		conn.SetPongHandler(func(string) error {
 			conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 			return nil
 		})
 
-		// 每30秒发送一次ping
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
 
 		for range ticker.C {
 			if err := conn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(10*time.Second)); err != nil {
-				// 发送ping失败，关闭连接并退出
 				conn.Close()
 				return
 			}
