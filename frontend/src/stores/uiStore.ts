@@ -8,6 +8,7 @@ interface UIState {
   notifications: Notification[];
   chatOpen: boolean;
   rulesOpen: boolean;
+  debugOpen: boolean;
 
   // Actions
   toggleTheme: () => void;
@@ -18,6 +19,7 @@ interface UIState {
   setChat: (open: boolean) => void;
   toggleRules: () => void;
   setRules: (open: boolean) => void;
+  toggleDebug: () => void;
 }
 
 export const useUIStore = create<UIState>()(
@@ -29,6 +31,7 @@ export const useUIStore = create<UIState>()(
         notifications: [],
         chatOpen: true,
         rulesOpen: false,
+        debugOpen: false,
 
         // Actions
         toggleTheme: () =>
@@ -69,6 +72,8 @@ export const useUIStore = create<UIState>()(
         toggleRules: () => set((state) => ({ rulesOpen: !state.rulesOpen })),
 
         setRules: (open) => set({ rulesOpen: open }),
+
+        toggleDebug: () => set((state) => ({ debugOpen: !state.debugOpen })),
       }),
       {
         name: 'ui-storage',

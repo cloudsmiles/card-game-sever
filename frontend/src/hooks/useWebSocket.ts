@@ -87,6 +87,17 @@ export const useWebSocket = () => {
     });
   };
 
+  const kickBot = (roomId: string, botId: string) => {
+    send({
+      type: 'room.action',
+      room_id: roomId,
+      data: {
+        action: 'kick_bot',
+        data: { bot_id: botId },
+      },
+    });
+  };
+
   return {
     isConnected,
     connect,
@@ -100,5 +111,6 @@ export const useWebSocket = () => {
     sendChat,
     sendGameAction,
     addBot,
+    kickBot,
   };
 };

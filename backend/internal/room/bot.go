@@ -155,6 +155,42 @@ func (r *Room) triggerBotCheck() {
 	}
 }
 
+// RemoveBot 移除指定的机器人
+func (r *Room) RemoveBot(botID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.State == types.RoomPlaying {
+		return fmt.Errorf("游戏进行中，无法移除机器人")
+	}
+
+	if !r.Bots[botID] {
+		return fmt.Errorf("该玩家不是机器人")
+	}
+
+	client, exists := r.Players[botID]
+	if !exists {
+		return fmt.Errorf("机器人不在房间中")
+	}
+
+	nickname := GlobalNicknameTracker.GetNickname(botID)
+
+	// 释放座位
+	if client.SeatNumber >= 0 {
+		delete(r.Seats, client.SeatNumber)
+	}
+	close(client.Send)
+	delete(r.Players, botID)
+	delete(r.Ready, botID)
+	delete(r.Bots, botID)
+	GlobalPlayerTracker.RemovePlayer(botID)
+	GlobalNicknameTracker.RemoveNickname(botID)
+
+	log.Printf("机器人被踢出 [房间：%s, ID：%s]", r.ID, botID)
+	r.broadcastRoomStateWithMessage(fmt.Sprintf("机器人 %s 已被移除", nickname))
+	return nil
+}
+
 // RemoveBots 移除房间中所有机器人
 func (r *Room) RemoveBots() {
 	r.mu.Lock()

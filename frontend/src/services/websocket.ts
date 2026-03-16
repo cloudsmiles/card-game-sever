@@ -13,53 +13,84 @@ export class WebSocketService {
   private nickname: string | null = null;
   private url: string = '';
   private shouldReconnect: boolean = true;
+  private isConnecting: boolean = false;
 
   /**
    * Connect to WebSocket server
    */
   connect(playerId: string, nickname?: string): Promise<void> {
+    // 防止并发连接
+    if (this.isConnecting) {
+      return Promise.reject(new Error('Already connecting'));
+    }
+
+    // 关闭旧连接（不触发自动重连）
+    if (this.ws) {
+      const oldWs = this.ws;
+      oldWs.onclose = null; // 移除 onclose 防止触发重连
+      oldWs.onerror = null;
+      oldWs.onmessage = null;
+      oldWs.close();
+      this.ws = null;
+    }
+
+    // 清除待执行的重连定时器
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+
+    this.isConnecting = true;
+    this.shouldReconnect = true;
+    this.playerId = playerId;
+    this.nickname = nickname || null;
+
+    const wsUrl = (import.meta as any).env?.VITE_WS_URL || 'ws://localhost:8080/ws';
+    const params = new URLSearchParams({ player: playerId });
+    if (nickname) {
+      params.set('nickname', nickname);
+    }
+    this.url = `${wsUrl}?${params.toString()}`;
+
+    console.log('[WebSocket] Connecting to:', this.url);
+
     return new Promise((resolve, reject) => {
-      this.playerId = playerId;
-      this.nickname = nickname || null;
-      const wsUrl = (import.meta as any).env?.VITE_WS_URL || 'ws://localhost:8080/ws';
-      const params = new URLSearchParams({ player: playerId });
-      if (nickname) {
-        params.set('nickname', nickname);
-      }
-      this.url = `${wsUrl}?${params.toString()}`;
-      
-      console.log('[WebSocket] Connecting to:', this.url);
-
       try {
-        this.ws = new WebSocket(this.url);
+        const ws = new WebSocket(this.url);
 
-        this.ws.onopen = () => {
+        ws.onopen = () => {
           console.log('[WebSocket] Connected');
+          this.ws = ws;
+          this.isConnecting = false;
           this.reconnectAttempts = 0;
           this.emit('connected', null);
           resolve();
         };
 
-        this.ws.onmessage = (event) => {
+        ws.onmessage = (event) => {
           this.handleMessage(event.data);
         };
 
-        this.ws.onerror = (error) => {
+        ws.onerror = (error) => {
           console.error('[WebSocket] Error:', error);
+          this.isConnecting = false;
           this.emit('error', error);
           reject(error);
         };
 
-        this.ws.onclose = () => {
+        ws.onclose = () => {
           console.log('[WebSocket] Disconnected');
-          this.emit('disconnected', null);
-          this.ws = null;
-
-          if (this.shouldReconnect && this.reconnectAttempts < this.maxReconnectAttempts) {
-            this.reconnect();
+          // 只有当前活跃的 ws 关闭时才处理
+          if (this.ws === ws) {
+            this.ws = null;
+            this.emit('disconnected', null);
+            if (this.shouldReconnect && this.reconnectAttempts < this.maxReconnectAttempts) {
+              this.scheduleReconnect();
+            }
           }
         };
       } catch (error) {
+        this.isConnecting = false;
         reject(error);
       }
     });
@@ -70,11 +101,13 @@ export class WebSocketService {
    */
   disconnect(): void {
     this.shouldReconnect = false;
+    this.isConnecting = false;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
     if (this.ws) {
+      this.ws.onclose = null;
       this.ws.close();
       this.ws = null;
     }
@@ -91,9 +124,6 @@ export class WebSocketService {
     }
   }
 
-  /**
-   * Register event handler
-   */
   on(event: string, handler: EventHandler): void {
     if (!this.eventHandlers.has(event)) {
       this.eventHandlers.set(event, new Set());
@@ -101,9 +131,6 @@ export class WebSocketService {
     this.eventHandlers.get(event)!.add(handler);
   }
 
-  /**
-   * Unregister event handler
-   */
   off(event: string, handler: EventHandler): void {
     const handlers = this.eventHandlers.get(event);
     if (handlers) {
@@ -111,9 +138,6 @@ export class WebSocketService {
     }
   }
 
-  /**
-   * Emit event to handlers
-   */
   private emit(event: string, data: any): void {
     const handlers = this.eventHandlers.get(event);
     if (handlers) {
@@ -121,9 +145,6 @@ export class WebSocketService {
     }
   }
 
-  /**
-   * Handle incoming message
-   */
   private handleMessage(data: string): void {
     try {
       const message = JSON.parse(data);
@@ -131,17 +152,12 @@ export class WebSocketService {
       if (message.type === 'broadcast') {
         const broadcast = message.data as { event: string; content: any };
         const { event, content } = broadcast;
-        
-        // Emit specific event
         this.emit(event, content);
-        
-        // Also emit generic broadcast event
         this.emit('broadcast', { event, content });
       } else if (message.type === 'error') {
         const errorData = message.data as { code: string; message: string };
         this.emit('error', errorData);
       } else {
-        // Handle other message types
         this.emit(message.type, message.data);
       }
     } catch (error) {
@@ -150,16 +166,13 @@ export class WebSocketService {
   }
 
   /**
-   * Handle reconnection with exponential backoff
+   * Schedule reconnection with exponential backoff
    */
-  private reconnect(): void {
-    if (!this.playerId) {
-      console.error('[WebSocket] Cannot reconnect: no player ID');
-      return;
-    }
+  private scheduleReconnect(): void {
+    if (!this.playerId || this.isConnecting) return;
 
     this.reconnectAttempts++;
-    const delay = this.getReconnectDelay();
+    const delay = this.baseReconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
 
     console.log(
       `[WebSocket] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`
@@ -168,6 +181,7 @@ export class WebSocketService {
     this.emit('reconnecting', { attempt: this.reconnectAttempts, delay });
 
     this.reconnectTimer = window.setTimeout(() => {
+      this.reconnectTimer = null;
       this.connect(this.playerId!, this.nickname || undefined)
         .then(() => {
           console.log('[WebSocket] Reconnected successfully');
@@ -178,16 +192,6 @@ export class WebSocketService {
     }, delay);
   }
 
-  /**
-   * Calculate reconnect delay with exponential backoff
-   */
-  private getReconnectDelay(): number {
-    return this.baseReconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
-  }
-
-  /**
-   * Check if connected
-   */
   isConnected(): boolean {
     return this.ws !== null && this.ws.readyState === WebSocket.OPEN;
   }

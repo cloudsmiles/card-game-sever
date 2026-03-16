@@ -30,7 +30,7 @@ export const RoomPage: React.FC = () => {
   const { roomId } = useParams<{ roomId: string }>();
   const { currentRoomId, gameType, roomStatus, players, maxPlayers, leaveRoom } = useRoomStore();
   const { clearMessages } = useChatStore();
-  const { leaveRoom: wsLeaveRoom, addBot } = useWebSocket();
+  const { leaveRoom: wsLeaveRoom, addBot, kickBot } = useWebSocket();
   const { addNotification } = useUIStore();
   const navigate = useNavigate();
 
@@ -71,6 +71,12 @@ export const RoomPage: React.FC = () => {
     }
   };
 
+  const handleKickBot = (botId: string) => {
+    if (roomId) {
+      kickBot(roomId, botId);
+    }
+  };
+
   return (
     <Container maxWidth="lg">
       <Box sx={{ py: 4 }}>
@@ -107,7 +113,7 @@ export const RoomPage: React.FC = () => {
         {roomStatus === 'waiting' ? (
           <Box sx={{ display: 'flex', gap: 3, flexDirection: { xs: 'column', md: 'row' } }}>
             <Box sx={{ flex: 1 }}>
-              <PlayerList players={players} maxPlayers={maxPlayers} />
+              <PlayerList players={players} maxPlayers={maxPlayers} roomStatus={roomStatus} onKickBot={handleKickBot} />
             </Box>
 
             <Box sx={{ width: { xs: '100%', md: 300 } }}>

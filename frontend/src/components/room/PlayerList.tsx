@@ -1,5 +1,5 @@
-import { Box, Paper, Typography, Avatar, Chip } from '@mui/material';
-import { CheckCircle, Cancel, SignalWifiOff, SmartToy } from '@mui/icons-material';
+import { Box, Paper, Typography, Avatar, Chip, IconButton } from '@mui/material';
+import { CheckCircle, Cancel, SignalWifiOff, SmartToy, Close } from '@mui/icons-material';
 import { motion } from 'framer-motion';
 import type { SeatPlayerInfo } from '@/types/room';
 import { useUserStore } from '@/stores/userStore';
@@ -7,9 +7,11 @@ import { useUserStore } from '@/stores/userStore';
 interface PlayerListProps {
   players: SeatPlayerInfo[];
   maxPlayers: number;
+  roomStatus?: string;
+  onKickBot?: (botId: string) => void;
 }
 
-export const PlayerList: React.FC<PlayerListProps> = ({ players, maxPlayers }) => {
+export const PlayerList: React.FC<PlayerListProps> = ({ players, maxPlayers, roomStatus, onKickBot }) => {
   const { playerId: currentPlayerId } = useUserStore();
 
   // Create array with all seats
@@ -92,6 +94,16 @@ export const PlayerList: React.FC<PlayerListProps> = ({ players, maxPlayers }) =
                   color="default"
                   variant="outlined"
                 />
+              )}
+              {player.is_bot && roomStatus !== 'playing' && onKickBot && (
+                <IconButton
+                  size="small"
+                  color="error"
+                  onClick={() => onKickBot(player.player_id)}
+                  title="踢出机器人"
+                >
+                  <Close fontSize="small" />
+                </IconButton>
               )}
             </Box>
           )}

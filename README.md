@@ -1,85 +1,121 @@
 # Card Game Server
 
-一个基于 Go 和 WebSocket 的多人在线卡牌游戏服务器，支持斗地主、麻将等多种游戏模式。
+一个基于 Go 和 WebSocket 的多人在线卡牌游戏服务器，支持斗地主、麻将、榴莲忘返等多种游戏模式，配套 React 前端。
 
 ## 功能特性
 
-- **多游戏支持**：支持斗地主(Dou Dizhu)、麻将(Mahjong)、简易卡牌游戏(Simple)
+- **多游戏支持**：斗地主(DDZ)、麻将(Mahjong)、榴莲忘返(Durian)、简易卡牌(Simple)
 - **实时通信**：基于 WebSocket 的全双工实时通信
 - **房间管理**：创建/加入房间、玩家准备、选座系统
-- **断线重连**：游戏中断线保护，支持 30 秒内重连恢复
+- **断线重连**：游戏中断线保护，支持重连恢复
 - **聊天系统**：房间内实时聊天功能
 - **游戏状态同步**：广播机制确保所有玩家状态一致
+- **机器人系统**：支持添加 AI 机器人填充空位
+- **超时处理**：回合超时自动操作，防止游戏卡死
 
 ## 技术栈
 
-- **语言**：Go 1.22+
+### 后端
+- **语言**：Go 1.25+
 - **通信协议**：WebSocket (gorilla/websocket)
 - **架构模式**：模块化设计，接口抽象
+
+### 前端
+- **框架**：React 18 + TypeScript
+- **构建工具**：Vite 5
+- **UI 库**：Material-UI 5
+- **状态管理**：Zustand
+- **动画**：Framer Motion
+- **路由**：React Router 6
 
 ## 项目结构
 
 ```
 card-game-server/
-├── internal/
-│   ├── connection/      # WebSocket 连接管理
-│   │   ├── connection.go
-│   │   └── handler.go   # 消息处理器
-│   ├── game/            # 游戏逻辑
-│   │   ├── interfaces/  # 游戏接口定义
-│   │   ├── simple/      # 简易游戏实现
-│   │   ├── ddz/         # 斗地主游戏实现
-│   │   ├── mahjong/     # 麻将游戏实现
-│   │   └── factory.go   # 游戏工厂
-│   ├── room/            # 房间管理
-│   │   ├── room.go      # 房间实例
-│   │   └── manager.go   # 房间管理器
-│   └── types/           # 类型定义
-│       ├── message.go   # 消息类型
-│       ├── broadcast.go # 广播类型
-│       ├── game_action.go
-│       └── room_action.go
-├── docs/
-│   └── mahjong-prd.md   # 麻将产品需求文档
-├── client.html          # 简易游戏测试客户端
-├── ddz-client.html      # 斗地主测试客户端
-├── mahjong-client.html  # 麻将测试客户端
-├── main.go              # 入口文件
-├── go.mod
-└── go.sum
+├── backend/                 # Go 后端
+│   ├── internal/
+│   │   ├── connection/      # WebSocket 连接管理
+│   │   │   ├── connection.go  # 连接追踪、心跳检测
+│   │   │   ├── handler.go     # 消息处理器
+│   │   │   └── http.go        # HTTP 路由
+│   │   ├── game/            # 游戏逻辑
+│   │   │   ├── interfaces/  # 游戏接口定义 (Game, BotPlayer, TimeoutHandler)
+│   │   │   ├── simple/      # 简易游戏实现
+│   │   │   ├── ddz/         # 斗地主游戏实现
+│   │   │   ├── mahjong/     # 麻将游戏实现
+│   │   │   ├── durian/      # 榴莲忘返游戏实现
+│   │   │   └── factory.go   # 游戏工厂
+│   │   ├── room/            # 房间管理
+│   │   │   ├── room.go      # 房间实例
+│   │   │   ├── manager.go   # 房间管理器
+│   │   │   ├── bot.go       # 机器人管理
+│   │   │   └── timer.go     # 超时计时器
+│   │   └── types/           # 类型定义
+│   │       ├── message.go   # 消息类型
+│   │       ├── broadcast.go # 广播类型
+│   │       ├── error.go     # 错误类型
+│   │       └── room_action.go
+│   ├── main.go              # 入口文件
+│   ├── client.html          # 简易游戏测试客户端
+│   ├── ddz-client.html      # 斗地主测试客户端
+│   ├── mahjong-client.html  # 麻将测试客户端
+│   ├── durian-client.html   # 榴莲忘返测试客户端
+│   ├── go.mod
+│   └── go.sum
+├── frontend/                # React 前端
+│   ├── src/
+│   │   ├── components/      # 通用组件 (chat, common, room, layout)
+│   │   ├── contexts/        # WebSocket Context
+│   │   ├── games/           # 游戏组件
+│   │   │   ├── ddz/         # 斗地主 UI
+│   │   │   ├── mahjong/     # 麻将 UI
+│   │   │   └── durian/      # 榴莲忘返 UI
+│   │   ├── hooks/           # 自定义 Hooks
+│   │   ├── pages/           # 页面 (Connect, Lobby, Room)
+│   │   ├── services/        # WebSocket 服务、API
+│   │   ├── stores/          # Zustand 状态管理
+│   │   └── types/           # TypeScript 类型定义
+│   ├── package.json
+│   └── index.html
+├── PROTOCOL.md              # WebSocket 协议文档
+└── README.md
 ```
 
 ## 快速开始
 
-### 安装依赖
+### 启动后端
 
 ```bash
-cd card-game-server
+cd card-game-server/backend
 go mod download
-```
-
-### 启动服务器
-
-```bash
 go run main.go
 ```
 
 服务器将在 `http://localhost:8080` 启动，WebSocket 端点为 `/ws`。
 
+### 启动前端
+
+```bash
+cd card-game-server/frontend
+npm install
+npm run dev
+```
+
 ### 测试客户端
 
-打开浏览器访问测试客户端：
+后端自带简易 HTML 测试客户端：
 
 - 简易游戏：`http://localhost:8080/client.html`
 - 斗地主：`http://localhost:8080/ddz-client.html`
 - 麻将：`http://localhost:8080/mahjong-client.html`
+- 榴莲忘返：`http://localhost:8080/durian-client.html`
 
 ## WebSocket 协议
 
 ### 连接方式
 
 ```
-ws://localhost:8080/ws?player=玩家ID
+ws://localhost:8080/ws?player=玩家ID&nickname=昵称
 ```
 
 ### 消息类型
@@ -90,8 +126,9 @@ ws://localhost:8080/ws?player=玩家ID
 |---------|------|------|
 | `room.create` | 创建房间 | `{"type":"room.create","data":{"game_type":"ddz"}}` |
 | `room.join` | 加入房间 | `{"type":"room.join","data":{"room_id":"abc123"}}` |
-| `room.action` | 房间操作（准备/选座） | `{"type":"room.action","room_id":"abc123","data":{"action":"ready","data":{"ready":true}}}` |
-| `game.action` | 游戏操作（出牌等） | `{"type":"game.action","room_id":"abc123","data":{"action":"play","card":"..."}}` |
+| `room.leave` | 离开房间 | `{"type":"room.leave","room_id":"abc123"}` |
+| `room.action` | 房间操作（准备/选座/加机器人） | `{"type":"room.action","room_id":"abc123","data":{"action":"ready","data":{"ready":true}}}` |
+| `game.action` | 游戏操作 | `{"type":"game.action","room_id":"abc123","data":{"action":"play","card":"..."}}` |
 | `chat` | 发送聊天消息 | `{"type":"chat","room_id":"abc123","data":{"content":"你好"}}` |
 
 #### 服务器 → 客户端
@@ -101,33 +138,31 @@ ws://localhost:8080/ws?player=玩家ID
 | `broadcast` | 广播消息（游戏状态变更、聊天等） |
 | `error` | 错误消息 |
 
-### 房间状态
-
-- `waiting` - 等待中（可加入、可准备）
-- `playing` - 游戏中
-- `paused` - 游戏暂停（有玩家断线）
-- `gameover` - 游戏结束
+详见 [PROTOCOL.md](PROTOCOL.md)。
 
 ## 游戏类型
 
 ### 1. 简易游戏 (simple)
-
 - 2 人对战
-- 简单的卡牌对战逻辑
-- 适合快速测试连接和房间功能
+- 简单的卡牌对战逻辑，适合测试
 
 ### 2. 斗地主 (ddz)
-
-- 3 人对战
-- 经典斗地主规则
-- 支持叫分、出牌、炸弹等
+- 3 人对战（逆时针出牌顺序）
+- 经典斗地主规则，支持叫分、出牌、炸弹等
+- 支持机器人、回合超时自动操作
 
 ### 3. 麻将 (mahjong)
-
 - 4 人对战
 - 国标麻将简化版（30种番种）
 - 支持吃、碰、杠、胡
-- 详见 [麻将 PRD](docs/mahjong-prd.md)
+- 支持回合超时自动操作
+
+### 4. 榴莲忘返 (durian)
+- 2~7 人对战
+- 水果订单卡牌游戏，含猩猩兄妹特殊牌
+- 猩猩牌效果：南茜(香蕉库存无限)、米奇(去除数量为3的订单)、墨菲(无事发生)
+- 翻到猩猩牌触发交换订单效果（每张牌只能翻转一次）
+- 支持机器人、回合超时自动操作
 
 ## 核心接口
 
@@ -139,7 +174,6 @@ type Game interface {
     Init(players []string) error
     ProcessAction(playerID string, action interface{}) (bool, error)
     CurrentTurn() string
-    AdvanceTurn()
     GetState() interface{}
     GetStateForPlayer(playerID string) interface{}
     IsGameOver() bool
@@ -149,10 +183,15 @@ type Game interface {
 }
 ```
 
+### 可选接口
+
+- `BotPlayer`：机器人行为接口，实现 `GetBotAction(botID string) *Action`
+- `TimeoutHandler`：超时处理接口，实现 `HandleTurnTimeout` / `HandlePendingTimeout`
+
 ### 添加新游戏
 
-1. 在 `internal/game/` 下创建新游戏目录
-2. 实现 `interfaces.Game` 接口
+1. 在 `backend/internal/game/` 下创建新游戏目录
+2. 实现 `interfaces.Game` 接口（可选实现 `BotPlayer`、`TimeoutHandler`）
 3. 在 `factory.go` 中注册游戏类型
 
 ```go
@@ -174,12 +213,8 @@ case "your_game":
 - [x] 简易游戏
 - [x] 斗地主游戏
 - [x] 麻将游戏
-    - [x] 胡了之后，不能正常游戏结束
-    - [x] 增加等待时间以及超时处理
 - [x] 榴莲忘返游戏
-    - [x] 翻到猩猩牌处理不正确
-    - [x] 点击继续游戏，状态同步有问题，会回到等待中页面
-- [x] 重连时获取当前的gameState
+- [x] 重连时获取当前的 gameState
 - [ ] 消息有序
 
 ### v1.1.0
@@ -188,41 +223,22 @@ case "your_game":
 - [x] 创建房间支持选择游戏类型
 - [x] 斗地主增加机器人
 - [x] 斗地主增加超时操作
-- [x] 使用主流的前端游戏框架，重构游戏
-- [x] 支持离开房间
-    - [x] 玩家游玩时离开房间应该立即结束游戏
-- [ ] 处理好断线重连机制
-- [x] 麻将游戏重构
-- [x] 榴莲忘贩游戏重构
-- [ ] 聊天消息重构展示，使用透明窗口
+- [x] React 前端重构
+- [x] 支持离开房间（游玩时离开立即结束游戏）
+- [x] 麻将游戏 UI 重构
+- [x] 榴莲忘返游戏 UI 重构
+- [x] 断线重连机制优化
 
 ### v1.2.0
-
-
-## Agents 协同体系
-
-本项目采用多Agent协同开发模式，各角色分工明确：
-
-### 🎮 card-game-pm (产品经理)
-- 负责产品规划和需求分析
-- 制定游戏规则和平衡性设计
-- 用户体验研究和市场调研
-
-### 💻 card-game-backend (后端开发)
-- 负责游戏逻辑和服务端架构
-- 数据库设计和API开发
-- 性能优化和系统稳定性
-
-### 🎨 card-game-frontend (前端开发)
-- 负责用户界面和交互体验
-- 游戏客户端开发和优化
-- 跨平台适配和技术选型
-
-### 🎨 ui-artist (UI美术设计师) ⭐新加入
-- 专门负责UI/UX设计和美术视觉创作
-- 打造温馨童真、充满想象力的卡通风格
-- 色彩体系规划和动效设计
-- 视觉规范制定和组件库建设
+- [x] 会话持久化（刷新页面自动重连，不丢失身份）
+- [ ] 优化超时逻辑，所有操作都需要有超时，超时后会自动操作，尽量避免游戏卡死
+- [x] 聊天消息重构展示，使用透明浮层
+- [ ] 游戏回放/观战模式
+- [ ] 玩家积分系统与排行榜
+- [ ] 音效与动画增强（出牌音效、结算动画）
+- [ ] 房间密码/私密房间
+- [ ] 游戏内表情包快捷发送
+- [ ] 移动端适配优化
 
 ## 许可证
 

@@ -15,7 +15,10 @@ import { useUIStore } from '@/stores/uiStore';
 import { QCardLogo } from '@/components/common';
 
 export const ConnectPage: React.FC = () => {
-  const [nickname, setNickname] = useState('');
+  const [nickname, setNickname] = useState(() => {
+    const stored = JSON.parse(localStorage.getItem('user-storage') || '{}');
+    return stored?.state?.nickname || '';
+  });
   const [isConnecting, setIsConnecting] = useState(false);
   const { connect } = useWebSocket();
   const { addNotification } = useUIStore();
@@ -42,8 +45,13 @@ export const ConnectPage: React.FC = () => {
     try {
       setIsConnecting(true);
       
-      // Generate unique player ID
-      const playerId = `player_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      // 如果 localStorage 中有相同昵称的 playerId，复用它
+      const stored = JSON.parse(localStorage.getItem('user-storage') || '{}');
+      const savedPlayerId = stored?.state?.playerId;
+      const savedNickname = stored?.state?.nickname;
+      const playerId = (savedPlayerId && savedNickname === nickname.trim())
+        ? savedPlayerId
+        : `player_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       
       await connect(playerId, nickname.trim());
       

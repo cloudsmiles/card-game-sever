@@ -409,6 +409,15 @@ func (r *Room) ProcessRoomAction(playerID string, action types.RoomActionData) e
 	case types.RoomActionAddBot:
 		return r.AddBot()
 
+	case types.RoomActionKickBot:
+		// 解析要踢的机器人ID
+		kickDataBytes, _ := json.Marshal(action.Data)
+		var kickData struct {
+			BotID string `json:"bot_id"`
+		}
+		json.Unmarshal(kickDataBytes, &kickData)
+		return r.RemoveBot(kickData.BotID)
+
 	default:
 		return fmt.Errorf("未知的房间操作: %s", action.Action)
 	}
@@ -507,6 +516,13 @@ func (r *Room) broadcastRoomStateWithMessage(message string) {
 
 // 内部方法：广播房间状态（调用者必须持有 r.mu 的读锁或写锁）
 func (r *Room) broadcastRoomStateInternal(message string) {
+	// 安全网：等待状态下确保所有机器人始终准备
+	if r.State == types.RoomWaiting {
+		for botID := range r.Bots {
+			r.Ready[botID] = true
+		}
+	}
+
 	// 计算在线玩家数（不包括断线玩家）并打印详细信息
 	onlineCount := 0
 	onlinePlayers := []string{}

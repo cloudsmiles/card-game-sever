@@ -7,8 +7,11 @@
 ## 连接建立
 
 ```
-ws://localhost:8080/ws?player=PLAYER_ID
+ws://localhost:8080/ws?player=PLAYER_ID&nickname=昵称
 ```
+
+- `player`: 玩家唯一ID（必填）
+- `nickname`: 玩家昵称（可选，默认使用 player ID）
 
 ## 消息格式
 
@@ -18,8 +21,8 @@ ws://localhost:8080/ws?player=PLAYER_ID
 interface WSMessage {
   type: string;           // 消息类型
   room_id?: string;       // 房间ID（部分消息需要）
-  player_id?: string;    // 玩家ID（通过URL参数传递）
-  data: any;             // 消息数据
+  player_id?: string;     // 玩家ID（服务端填充，通过URL参数传递）
+  data: any;              // 消息数据
 }
 ```
 
@@ -30,58 +33,64 @@ interface WSMessage {
 ### 1. 创建房间 (room.create)
 
 ```typescript
-// 请求
 {
   type: 'room.create',
   data: {
     game_type: 'simple' | 'ddz' | 'mahjong' | 'durian'
   }
 }
-
-// 服务器响应：通过 room_state_changed 广播房间状态
 ```
 
 ### 2. 加入房间 (room.join)
 
 ```typescript
-// 请求
 {
   type: 'room.join',
   data: {
     room_id: string
   }
 }
-
-// 服务器响应：通过 room_state_changed 广播房间状态
 ```
 
-### 3. 房间操作 (room.action)
+### 3. 离开房间 (room.leave)
 
 ```typescript
-// 请求
+{
+  type: 'room.leave',
+  room_id: string,
+  data: {}
+}
+```
+
+### 4. 房间操作 (room.action)
+
+```typescript
 {
   type: 'room.action',
   room_id: string,
   data: {
-    action: 'ready' | 'unready' | 'select_seat',
-    data?: {
-      ready?: boolean,
-      seat_number?: number
-    }
+    action: 'ready' | 'select_seat' | 'add_bot' | 'kick_bot',
+    data?: any
   }
 }
+```
 
-// 准备操作
+#### 准备/取消准备
+
+```typescript
 {
   type: 'room.action',
   room_id: 'xxx',
   data: {
     action: 'ready',
-    data: { ready: true }
+    data: { ready: true }   // true=准备, false=取消准备
   }
 }
+```
 
-// 选座操作
+#### 选座
+
+```typescript
 {
   type: 'room.action',
   room_id: 'xxx',
@@ -92,38 +101,48 @@ interface WSMessage {
 }
 ```
 
-### 4. 游戏操作 (game.action)
+#### 添加机器人
 
 ```typescript
-// 请求
+{
+  type: 'room.action',
+  room_id: 'xxx',
+  data: {
+    action: 'add_bot'
+  }
+}
+```
+
+#### 踢出机器人
+
+```typescript
+{
+  type: 'room.action',
+  room_id: 'xxx',
+  data: {
+    action: 'kick_bot',
+    data: { bot_id: 'bot_0' }
+  }
+}
+```
+
+### 5. 游戏操作 (game.action)
+
+```typescript
 {
   type: 'game.action',
   room_id: string,
   data: {
     action: string,      // 游戏特定动作
-    card?: any           // 动作数据（打出的牌等）
+    card?: any,          // 动作数据（打出的牌等）
+    [key: string]: any   // 其他游戏特定字段
   }
-}
-
-// 游戏开始
-{
-  type: 'game.action',
-  room_id: 'xxx',
-  data: { action: 'start' }
-}
-
-// 离开游戏
-{
-  type: 'game.action',
-  room_id: 'xxx',
-  data: { action: 'leave' }
 }
 ```
 
-### 5. 聊天 (chat)
+### 6. 聊天 (chat)
 
 ```typescript
-// 请求
 {
   type: 'chat',
   room_id: string,
@@ -155,50 +174,45 @@ interface WSMessage {
 
 ### 1. 房间状态变更 (room_state_changed)
 
-**服务器推送时机：** 玩家加入/离开房间、准备/取消准备、选座、开始游戏
+**触发时机：** 玩家加入/离开房间、准备/取消准备、选座、添加/踢出机器人、开始游戏
 
 ```typescript
-// 内容结构
-{
-  room_id: string,           // 房间ID
-  state: 'waiting' | 'playing', // 房间状态
-  players: SeatPlayerInfo[], // 玩家列表
-  message: string            // 提示信息
-}
-
-// 玩家信息
-interface SeatPlayerInfo {
-  player_id: string;    // 玩家ID
-  seat_number: number;  // 座位号 (0, 1, 2, ...)
-  ready: boolean;        // 是否已准备
-  is_offline: boolean;   // 是否断线
-}
-
-// 示例
 {
   type: 'broadcast',
   data: {
     event: 'room_state_changed',
     content: {
-      room_id: 'room_abc123',
-      state: 'waiting',
-      players: [
-        { player_id: 'player1', seat_number: 0, ready: true, is_offline: false },
-        { player_id: 'player2', seat_number: 1, ready: false, is_offline: false }
-      ],
-      message: '玩家 player1 加入了房间'
+      room_id: string,
+      game_type: string,                    // 游戏类型
+      state: 'waiting' | 'playing',
+      players: PlayerSeatInfo[],
+      message: string
     }
   }
+}
+
+interface PlayerSeatInfo {
+  player_id: string;
+  nickname: string;
+  seat_number: number;    // 座位号 (0, 1, 2, ...)
+  ready: boolean;
+  is_offline: boolean;    // 是否断线
+  is_bot: boolean;        // 是否是机器人
 }
 ```
 
 ### 2. 游戏状态更新 (state_update)
 
-**服务器推送时机：** 游戏中有任何动作（出牌、摸牌等）
+**触发时机：** 游戏中有任何动作（出牌、摸牌等）
 
 ```typescript
-// 内容为游戏特定的状态对象
-// 不同游戏类型有不同的结构，参见各游戏协议
+{
+  type: 'broadcast',
+  data: {
+    event: 'state_update',
+    content: { /* 游戏特定的状态对象，每个玩家收到个性化内容 */ }
+  }
+}
 ```
 
 ### 3. 游戏开始 (game_started)
@@ -223,31 +237,46 @@ interface SeatPlayerInfo {
   data: {
     event: 'game_over',
     content: {
-      winner: string,        // 获胜者ID
-      message: string        // 提示信息
+      winner: string,
+      message: string
       // 游戏特定的结算信息
     }
   }
 }
 ```
 
-### 5. 聊天消息 (chat_message)
+### 5. 聊天消息 (chat)
 
 ```typescript
 {
   type: 'broadcast',
   data: {
-    event: 'chat_message',
+    event: 'chat',
     content: {
       room_id: string,
       player_id: string,
+      nickname: string,
       content: string
     }
   }
 }
 ```
 
-### 6. 错误消息 (error)
+### 6. 离开房间确认 (room_left)
+
+```typescript
+{
+  type: 'broadcast',
+  data: {
+    event: 'room_left',
+    content: {
+      room_id: string
+    }
+  }
+}
+```
+
+### 7. 错误消息 (error)
 
 ```typescript
 {
@@ -265,13 +294,13 @@ interface SeatPlayerInfo {
 
 | 错误码 | 说明 |
 |--------|------|
-| 400 | 消息格式错误 |
-| 401 | 缺少消息类型 |
+| 400 | 消息格式错误 / 缺少消息类型 |
 | 1001 | 玩家已在其他房间 |
 | 1002 | 房间不存在 |
 | 1003 | 加入房间失败 |
 | 1004 | 房间已满 |
 | 1005 | 游戏进行中，无法加入 |
+| 1006 | 玩家不在房间中 |
 | 500 | 服务器内部错误 |
 
 ---
@@ -280,84 +309,53 @@ interface SeatPlayerInfo {
 
 ```typescript
 // types/websocket.ts
-
-// 游戏类型
-export type GameType = 'simple' | 'ddz' | 'mahjong' | 'durian';
-
-// 玩家座位信息
-export interface SeatPlayerInfo {
-  player_id: string;
-  seat_number: number;
-  ready: boolean;
-  is_offline: boolean;
+export interface WSMessage {
+  type: string;
+  [key: string]: any;
 }
 
-// 房间状态变更内容
-export interface RoomStateContent {
-  room_id: string;
-  state: 'waiting' | 'playing';
-  players: SeatPlayerInfo[];
+export interface WSBroadcast {
+  type: 'broadcast';
+  event: string;
+  content: any;
+}
+
+export interface WSError {
+  type: 'error';
+  code: number;
   message: string;
 }
 
-// WebSocket 消息
-export interface WSMessage {
-  type: string;
-  room_id?: string;
-  player_id?: string;
-  data: any;
+export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
+```
+
+```typescript
+// types/room.ts
+export interface SeatPlayerInfo {
+  seat: number;
+  player_id: string;
+  nickname: string;
+  ready: boolean;
+  offline: boolean;
+  is_bot?: boolean;
 }
 
-// 消息类型常量
-export const MessageTypes = {
-  ROOM_CREATE: 'room.create',
-  ROOM_JOIN: 'room.join',
-  ROOM_ACTION: 'room.action',
-  GAME_ACTION: 'game.action',
-  CHAT: 'chat',
-  BROADCAST: 'broadcast',
-  ERROR: 'error'
-} as const;
-
-// 广播事件常量
-export const BroadcastEvents = {
-  ROOM_STATE_CHANGED: 'room_state_changed',
-  CHAT_MESSAGE: 'chat_message',
-  GAME_STATE_UPDATE: 'state_update',
-  GAME_STARTED: 'game_started',
-  GAME_OVER: 'game_over',
-  PLAYER_JOINED: 'player_joined',
-  PLAYER_LEFT: 'player_left'
-} as const;
+export type GameType = 'ddz' | 'mahjong' | 'durian';
+export type RoomStatus = 'waiting' | 'playing';
 ```
 
 ---
 
-## 处理 room_state_changed 示例
+## 断线重连
 
-前端处理 `room_state_changed` 事件时，直接使用 `content` 字段：
+- 连接断开后前端自动重连（指数退避，最大间隔30秒）
+- 重连时使用相同的 `player` 和 `nickname` 参数
+- 如果玩家在游戏中断线，后端标记为离线状态
+- 重连成功后自动恢复到游戏房间，获取当前游戏状态
+- 非游戏中断线则直接移除玩家
 
-```typescript
-wsService.on('roomStateChanged', (data: RoomStateContent) => {
-  // data 直接就是 RoomStateContent 结构
-  console.log('房间ID:', data.room_id);
-  console.log('房间状态:', data.state);
-  console.log('玩家列表:', data.players);
-  console.log('提示信息:', data.message);
+## 心跳检测
 
-  // 更新房间信息
-  setRoomInfo({
-    id: data.room_id,
-    game_type: currentGameType,
-    players: data.players.map(p => ({
-      id: p.player_id,
-      name: p.player_id, // 可选：如有昵称则使用昵称
-      is_ready: p.ready,
-      seat_index: p.seat_number
-    })),
-    max_players: data.players.length, // 或根据游戏类型确定
-    status: data.state,
-    created_at: ''
-  });
-});
-```
+- 服务端定期发送 Ping 帧
+- 客户端自动回复 Pong 帧
+- 超时未收到 Pong 则断开连接

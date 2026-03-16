@@ -49,9 +49,9 @@ func TestTileParsing(t *testing.T) {
 		{map[string]interface{}{"suit": "tiao", "rank": float64(9)}, true, SuitTiao, 9},
 		{map[string]interface{}{"suit": "tong", "rank": float64(5)}, true, SuitTong, 5},
 		{map[string]interface{}{"suit": "zi", "rank": float64(7)}, true, SuitZi, 7},
-		{map[string]interface{}{"suit": "zi", "rank": float64(8)}, false, 0, 0},       // 字牌rank不能>7
-		{map[string]interface{}{"suit": "invalid", "rank": float64(1)}, false, 0, 0},   // 无效花色
-		{map[string]interface{}{"suit": "wan", "rank": float64(0)}, false, 0, 0},        // rank不能<1
+		{map[string]interface{}{"suit": "zi", "rank": float64(8)}, false, 0, 0},      // 字牌rank不能>7
+		{map[string]interface{}{"suit": "invalid", "rank": float64(1)}, false, 0, 0}, // 无效花色
+		{map[string]interface{}{"suit": "wan", "rank": float64(0)}, false, 0, 0},     // rank不能<1
 	}
 
 	for _, tt := range tests {
@@ -433,5 +433,85 @@ func TestFullGameFlow_BasicDiscard(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// ==================== 明杠修复验证 ====================
+
+// TestExposedKongOptions 验证：别人打出的牌可以杠时，GetStateForPlayer 应返回 kong_options
+func TestExposedKongOptions(t *testing.T) {
+	g := New()
+	players := []string{"p1", "p2", "p3", "p4"}
+	g.Init(players)
+	mg := g.(*MahjongGame)
+
+	// 构造场景：给座位1的手牌中放3张1万，然后座位0打出1万
+	// 这样座位1就可以明杠
+	targetTile := Tile{SuitWan, 1}
+
+	// 确保座位1手牌有3张目标牌
+	mg.hands[1] = Tiles{
+		targetTile, targetTile, targetTile,
+		{SuitWan, 2}, {SuitWan, 3}, {SuitWan, 4},
+		{SuitTiao, 1}, {SuitTiao, 2}, {SuitTiao, 3},
+		{SuitTong, 5}, {SuitTong, 6}, {SuitTong, 7},
+		{SuitZi, 1},
+	}
+
+	// 确保座位0手牌有目标牌可以打出
+	if !mg.hands[0].Contains(targetTile) {
+		mg.hands[0][0] = targetTile
+	}
+
+	// 座位0打出1万
+	action := interfaces.Action{
+		Type: "discard",
+		Data: targetTile.ToMap(),
+	}
+	_, err := g.ProcessAction("p1", action)
+	if err != nil {
+		t.Fatalf("出牌失败: %v", err)
+	}
+
+	// 此时应进入 PhasePending，座位1应有杠的选项
+	if mg.phase != PhasePending {
+		t.Fatalf("应进入PhasePending阶段，实际: %s", mg.phase)
+	}
+
+	acts, hasPending := mg.pendingActions[1]
+	if !hasPending {
+		t.Fatal("座位1应有pending actions")
+	}
+	hasKong := false
+	for _, a := range acts {
+		if a == ActionKong {
+			hasKong = true
+		}
+	}
+	if !hasKong {
+		t.Fatalf("座位1应有杠操作，实际actions: %v", acts)
+	}
+
+	// 关键验证：GetStateForPlayer 应返回 kong_options
+	state := g.GetStateForPlayer("p2")
+	stateMap := state.(map[string]interface{})
+
+	kongOptions, ok := stateMap["kong_options"]
+	if !ok {
+		t.Fatal("PhasePending阶段有杠操作时，GetStateForPlayer应返回kong_options")
+	}
+
+	kongList := kongOptions.([]map[string]interface{})
+	if len(kongList) != 1 {
+		t.Fatalf("应有1个杠选项，实际%d", len(kongList))
+	}
+
+	if kongList[0]["type"] != "exposed" {
+		t.Errorf("杠类型应为exposed，实际: %v", kongList[0]["type"])
+	}
+
+	tileMap := kongList[0]["tile"].(map[string]interface{})
+	if tileMap["suit"] != "wan" || tileMap["rank"] != 1 {
+		t.Errorf("杠牌应为1万，实际: %v", tileMap)
 	}
 }

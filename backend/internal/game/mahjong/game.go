@@ -919,6 +919,23 @@ func (g *MahjongGame) GetStateForPlayer(playerID string) interface{} {
 		}
 	}
 
+	// 别人打出的牌可以明杠时，提供杠选项
+	if g.phase == PhasePending && g.lastDiscard != nil {
+		if acts, ok := g.pendingActions[seat]; ok {
+			for _, a := range acts {
+				if a == ActionKong {
+					baseState["kong_options"] = []map[string]interface{}{
+						{
+							"tile": g.lastDiscard.ToMap(),
+							"type": "exposed",
+						},
+					}
+					break
+				}
+			}
+		}
+	}
+
 	return baseState
 }
 

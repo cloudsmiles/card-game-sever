@@ -1,16 +1,11 @@
 import { useState, useRef, useEffect } from 'react';
 import {
   Box,
-  Paper,
   IconButton,
   TextField,
-  Button,
   Typography,
-  Drawer,
-  useMediaQuery,
-  useTheme,
 } from '@mui/material';
-import { Chat, Close, Send, EmojiEmotions } from '@mui/icons-material';
+import { Chat, Send, Close } from '@mui/icons-material';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useUIStore } from '@/stores/uiStore';
 import { useChatStore } from '@/stores/chatStore';
@@ -19,21 +14,10 @@ import { useUserStore } from '@/stores/userStore';
 import { useWebSocket } from '@/hooks/useWebSocket';
 
 interface ChatPanelProps {
-  roomOnly?: boolean; // 是否只在房间内显示
+  roomOnly?: boolean;
 }
 
-const QUICK_PHRASES = [
-  '你好！',
-  '快点啊',
-  '等等',
-  '好的',
-  '谢谢',
-  '再见',
-];
-
 export const ChatPanel: React.FC<ChatPanelProps> = ({ roomOnly = false }) => {
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const { chatOpen, toggleChat } = useUIStore();
   const { messages } = useChatStore();
   const { currentRoomId } = useRoomStore();
@@ -41,8 +25,8 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ roomOnly = false }) => {
   const { sendChat } = useWebSocket();
 
   const [message, setMessage] = useState('');
-  const [showQuickPhrases, setShowQuickPhrases] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -52,181 +36,38 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ roomOnly = false }) => {
     scrollToBottom();
   }, [messages]);
 
-  // 如果设置为只在房间内显示，且当前不在房间内，则不显示
+  // 点击聊天区域外自动隐藏
+  useEffect(() => {
+    if (!chatOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (chatRef.current && !chatRef.current.contains(e.target as Node)) {
+        toggleChat();
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [chatOpen, toggleChat]);
+
   if (roomOnly && !currentRoomId) {
     return null;
   }
 
   const handleSend = () => {
     if (!message.trim() || !currentRoomId) return;
-
     sendChat(currentRoomId, message.trim());
     setMessage('');
   };
 
-  const handleQuickPhrase = (phrase: string) => {
-    if (!currentRoomId) return;
-    sendChat(currentRoomId, phrase);
-    setShowQuickPhrases(false);
-  };
+  // 只显示最近的消息（浮层模式下不需要太多历史）
+  const recentMessages = messages.slice(-20);
 
-  const chatContent = (
-    <Box
-      sx={{
-        height: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        bgcolor: 'background.paper',
-      }}
-    >
-      <Box
-        sx={{
-          p: 2,
-          borderBottom: 1,
-          borderColor: 'divider',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-        }}
-      >
-        <Typography variant="h6" fontWeight="bold">
-          聊天
-        </Typography>
-        <IconButton size="small" onClick={toggleChat}>
-          <Close />
-        </IconButton>
-      </Box>
-
-      <Box
-        sx={{
-          flexGrow: 1,
-          overflowY: 'auto',
-          p: 2,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 1,
-        }}
-      >
-        {messages.length === 0 ? (
-          <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', mt: 4 }}>
-            暂无消息
-          </Typography>
-        ) : (
-          messages.map((msg) => {
-            const isOwn = msg.playerId === playerId;
-            const isSystem = msg.playerId === 'system';
-
-            if (isSystem) {
-              return (
-                <Box
-                  key={msg.id}
-                  component={motion.div}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  sx={{ display: 'flex', justifyContent: 'center', py: 0.5 }}
-                >
-                  <Typography
-                    variant="caption"
-                    color="text.secondary"
-                    sx={{ bgcolor: 'action.hover', px: 1.5, py: 0.5, borderRadius: 2, fontSize: '0.7rem' }}
-                  >
-                    {msg.content}
-                  </Typography>
-                </Box>
-              );
-            }
-
-            return (
-              <Box
-                key={msg.id}
-                component={motion.div}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                sx={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: isOwn ? 'flex-end' : 'flex-start',
-                }}
-              >
-                <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5 }}>
-                  {isOwn ? '我' : msg.nickname}
-                </Typography>
-                <Paper
-                  sx={{
-                    p: 1.5,
-                    maxWidth: '70%',
-                    bgcolor: isOwn ? 'primary.main' : 'background.default',
-                    color: isOwn ? 'primary.contrastText' : 'text.primary',
-                  }}
-                >
-                  <Typography variant="body2">{msg.content}</Typography>
-                </Paper>
-              </Box>
-            );
-          })
-        )}
-        <div ref={messagesEndRef} />
-      </Box>
-
-      <Box sx={{ p: 2, borderTop: 1, borderColor: 'divider' }}>
-        <AnimatePresence>
-          {showQuickPhrases && (
-            <Box
-              component={motion.div}
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 'auto', opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              sx={{ mb: 2, display: 'flex', flexWrap: 'wrap', gap: 1 }}
-            >
-              {QUICK_PHRASES.map((phrase) => (
-                <Button
-                  key={phrase}
-                  size="small"
-                  variant="outlined"
-                  onClick={() => handleQuickPhrase(phrase)}
-                >
-                  {phrase}
-                </Button>
-              ))}
-            </Box>
-          )}
-        </AnimatePresence>
-
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <IconButton
-            size="small"
-            onClick={() => setShowQuickPhrases(!showQuickPhrases)}
-            color={showQuickPhrases ? 'primary' : 'default'}
-          >
-            <EmojiEmotions />
-          </IconButton>
-
-          <TextField
-            fullWidth
-            size="small"
-            placeholder="输入消息..."
-            value={message}
-            onChange={(e) => setMessage(e.target.value.slice(0, 200))}
-            onKeyPress={(e) => e.key === 'Enter' && handleSend()}
-            disabled={!currentRoomId}
-          />
-
-          <IconButton color="primary" onClick={handleSend} disabled={!message.trim() || !currentRoomId}>
-            <Send />
-          </IconButton>
-        </Box>
-
-        <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
-          {message.length}/200
-        </Typography>
-      </Box>
-    </Box>
-  );
-
-  if (isMobile) {
-    return (
-      <>
+  return (
+    <>
+      {/* 聊天开关按钮 */}
+      {!chatOpen && (
         <IconButton
+          component={motion.button}
+          whileHover={{ scale: 1.1 }}
           sx={{
             position: 'fixed',
             bottom: 16,
@@ -234,34 +75,9 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ roomOnly = false }) => {
             bgcolor: 'primary.main',
             color: 'white',
             '&:hover': { bgcolor: 'primary.dark' },
-            zIndex: 1000,
-          }}
-          onClick={toggleChat}
-        >
-          <Chat />
-        </IconButton>
-
-        <Drawer anchor="right" open={chatOpen} onClose={toggleChat}>
-          <Box sx={{ width: 320, height: '100%' }}>{chatContent}</Box>
-        </Drawer>
-      </>
-    );
-  }
-
-  return (
-    <>
-      {!chatOpen && (
-        <IconButton
-          component={motion.button}
-          whileHover={{ scale: 1.1 }}
-          sx={{
-            position: 'fixed',
-            top: 80,
-            right: 16,
-            bgcolor: 'primary.main',
-            color: 'white',
-            '&:hover': { bgcolor: 'primary.dark' },
-            zIndex: 1000,
+            zIndex: 1200,
+            width: 48,
+            height: 48,
           }}
           onClick={toggleChat}
         >
@@ -269,24 +85,163 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ roomOnly = false }) => {
         </IconButton>
       )}
 
+      {/* 透明浮层聊天窗口 */}
       <AnimatePresence>
         {chatOpen && (
           <Box
+            ref={chatRef}
             component={motion.div}
-            initial={{ x: 320, opacity: 0 }}
-            animate={{ x: 0, opacity: 1 }}
-            exit={{ x: 320, opacity: 0 }}
-            transition={{ type: 'spring', damping: 25 }}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            transition={{ duration: 0.2 }}
             sx={{
               position: 'fixed',
-              top: 64,
+              bottom: 0,
               right: 0,
-              width: 320,
-              height: 'calc(100vh - 64px)',
-              zIndex: 1000,
+              width: { xs: '100%', sm: 360 },
+              maxHeight: 400,
+              zIndex: 1200,
+              display: 'flex',
+              flexDirection: 'column',
+              pointerEvents: 'none',
             }}
           >
-            {chatContent}
+            {/* 消息区域 - 透明背景，消息自底向上 */}
+            <Box
+              sx={{
+                flex: 1,
+                overflowY: 'auto',
+                px: 2,
+                py: 1,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 0.5,
+                pointerEvents: 'auto',
+                // 隐藏滚动条
+                '&::-webkit-scrollbar': { display: 'none' },
+                scrollbarWidth: 'none',
+              }}
+            >
+              {recentMessages.map((msg) => {
+                const isOwn = msg.playerId === playerId;
+                const isSystem = msg.playerId === 'system';
+
+                if (isSystem) {
+                  return (
+                    <Box
+                      key={msg.id}
+                      component={motion.div}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      sx={{ display: 'flex', justifyContent: 'center', py: 0.25 }}
+                    >
+                      <Typography
+                        variant="caption"
+                        sx={{
+                          color: 'rgba(255,255,255,0.7)',
+                          bgcolor: 'rgba(0,0,0,0.3)',
+                          px: 1.5,
+                          py: 0.25,
+                          borderRadius: 2,
+                          fontSize: '0.7rem',
+                        }}
+                      >
+                        {msg.content}
+                      </Typography>
+                    </Box>
+                  );
+                }
+
+                return (
+                  <Box
+                    key={msg.id}
+                    component={motion.div}
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    sx={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: isOwn ? 'flex-end' : 'flex-start',
+                    }}
+                  >
+                    <Box
+                      sx={{
+                        maxWidth: '75%',
+                        bgcolor: isOwn ? 'rgba(255,107,53,0.85)' : 'rgba(0,0,0,0.5)',
+                        color: 'white',
+                        px: 1.5,
+                        py: 0.5,
+                        borderRadius: 2,
+                        backdropFilter: 'blur(4px)',
+                      }}
+                    >
+                      {!isOwn && (
+                        <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.65rem' }}>
+                          {msg.nickname}
+                        </Typography>
+                      )}
+                      <Typography variant="body2" sx={{ fontSize: '0.85rem', lineHeight: 1.3 }}>
+                        {msg.content}
+                      </Typography>
+                    </Box>
+                  </Box>
+                );
+              })}
+              <div ref={messagesEndRef} />
+            </Box>
+
+            {/* 底部输入框 */}
+            <Box
+              sx={{
+                px: 2,
+                py: 1,
+                bgcolor: 'rgba(0,0,0,0.6)',
+                backdropFilter: 'blur(8px)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1,
+                pointerEvents: 'auto',
+              }}
+            >
+              <TextField
+                fullWidth
+                size="small"
+                placeholder="输入消息..."
+                value={message}
+                onChange={(e) => setMessage(e.target.value.slice(0, 200))}
+                onKeyPress={(e) => e.key === 'Enter' && handleSend()}
+                disabled={!currentRoomId}
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    bgcolor: 'rgba(255,255,255,0.1)',
+                    color: 'white',
+                    fontSize: '0.85rem',
+                    '& fieldset': { borderColor: 'rgba(255,255,255,0.2)' },
+                    '&:hover fieldset': { borderColor: 'rgba(255,255,255,0.4)' },
+                    '&.Mui-focused fieldset': { borderColor: 'primary.main' },
+                  },
+                  '& .MuiOutlinedInput-input::placeholder': {
+                    color: 'rgba(255,255,255,0.5)',
+                  },
+                }}
+              />
+              <IconButton
+                size="small"
+                onClick={handleSend}
+                disabled={!message.trim() || !currentRoomId}
+                sx={{ color: 'white' }}
+              >
+                <Send fontSize="small" />
+              </IconButton>
+              <IconButton
+                size="small"
+                onClick={toggleChat}
+                sx={{ color: 'rgba(255,255,255,0.6)' }}
+              >
+                <Close fontSize="small" />
+              </IconButton>
+            </Box>
           </Box>
         )}
       </AnimatePresence>
