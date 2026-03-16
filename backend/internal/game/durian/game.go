@@ -38,6 +38,8 @@ type DurianGame struct {
 	// 超时相关
 	turnTimer        *time.Timer
 	turnDeadline     time.Time
+	continueTimer    *time.Timer // waiting_continue 阶段超时定时器
+	continueDeadline time.Time   // waiting_continue 阶段截止时间
 	onTurnTimeout    func(playerID string)
 	onPendingTimeout func()
 }
@@ -477,6 +479,7 @@ func (g *DurianGame) processContinue(playerID string) (bool, error) {
 
 	// 所有人都确认了，开始新一轮
 	if allConfirmed {
+		g.stopContinueTimer()
 		if err := g.startNewRound(g.pendingNextRoundStart); err != nil {
 			return false, fmt.Errorf("开始新一轮失败：%w", err)
 		}
@@ -553,6 +556,8 @@ func (g *DurianGame) processRingBell(playerID string) (bool, error) {
 
 	// 进入等待确认阶段
 	g.phase = "waiting_continue"
+	g.stopTurnTimer()
+	g.startContinueTimer()
 
 	// 摇铃后回合结束，但新回合的起始玩家将在 continue 阶段处理
 	return true, nil
@@ -635,6 +640,9 @@ func (g *DurianGame) buildPublicState() map[string]interface{} {
 			}
 		}
 		state["waiting_for_continue"] = waitingList
+		if !g.continueDeadline.IsZero() {
+			state["turnDeadline"] = g.continueDeadline.UnixMilli()
+		}
 	}
 
 	return state
@@ -878,8 +886,26 @@ func (g *DurianGame) HandleTurnTimeout(playerID string) error {
 	return nil
 }
 
-// HandlePendingTimeout 榴莲忘返没有pending阶段，空实现
+// HandlePendingTimeout 处理等待确认继续超时
 func (g *DurianGame) HandlePendingTimeout() error {
+	if g.phase != "waiting_continue" || g.waitingForContinue == nil {
+		return nil
+	}
+	log.Printf("[榴莲忘返] 等待确认继续超时，自动为未确认玩家执行 continue")
+
+	// 收集未确认的玩家
+	pending := []string{}
+	for pid, waiting := range g.waitingForContinue {
+		if waiting {
+			pending = append(pending, pid)
+		}
+	}
+
+	// 自动为每个未确认的玩家执行 continue
+	for _, pid := range pending {
+		g.processContinue(pid)
+	}
+
 	return nil
 }
 
@@ -904,6 +930,27 @@ func (g *DurianGame) stopTurnTimer() {
 		g.turnTimer = nil
 	}
 	g.turnDeadline = time.Time{}
+}
+
+// startContinueTimer 启动等待确认继续超时定时器（10秒）
+func (g *DurianGame) startContinueTimer() {
+	g.stopContinueTimer()
+	g.continueDeadline = time.Now().Add(10 * time.Second)
+	g.continueTimer = time.AfterFunc(10*time.Second, func() {
+		if g.onPendingTimeout != nil {
+			g.onPendingTimeout()
+		}
+	})
+	log.Printf("[榴莲忘返] 启动等待确认继续定时器（10秒）")
+}
+
+// stopContinueTimer 停止等待确认继续超时定时器
+func (g *DurianGame) stopContinueTimer() {
+	if g.continueTimer != nil {
+		g.continueTimer.Stop()
+		g.continueTimer = nil
+	}
+	g.continueDeadline = time.Time{}
 }
 
 // ─────────────────────────────────────────────
