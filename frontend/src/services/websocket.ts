@@ -11,6 +11,7 @@ export class WebSocketService {
   private baseReconnectDelay: number = 3000;
   private playerId: string | null = null;
   private nickname: string | null = null;
+  private token: string | null = null;
   private url: string = '';
   private shouldReconnect: boolean = true;
   private isConnecting: boolean = false;
@@ -18,7 +19,7 @@ export class WebSocketService {
   /**
    * Connect to WebSocket server
    */
-  connect(playerId: string, nickname?: string): Promise<void> {
+  connect(playerId: string, nickname?: string, token?: string): Promise<void> {
     // 防止并发连接
     if (this.isConnecting) {
       return Promise.reject(new Error('Already connecting'));
@@ -44,11 +45,17 @@ export class WebSocketService {
     this.shouldReconnect = true;
     this.playerId = playerId;
     this.nickname = nickname || null;
+    this.token = token || null;
 
     const wsUrl = (import.meta as any).env?.VITE_WS_URL || 'ws://localhost:8080/ws';
-    const params = new URLSearchParams({ player: playerId });
-    if (nickname) {
-      params.set('nickname', nickname);
+    const params = new URLSearchParams();
+    if (token) {
+      params.set('token', token);
+    } else {
+      params.set('player', playerId);
+      if (nickname) {
+        params.set('nickname', nickname);
+      }
     }
     this.url = `${wsUrl}?${params.toString()}`;
 
@@ -182,7 +189,7 @@ export class WebSocketService {
 
     this.reconnectTimer = window.setTimeout(() => {
       this.reconnectTimer = null;
-      this.connect(this.playerId!, this.nickname || undefined)
+      this.connect(this.playerId!, this.nickname || undefined, this.token || undefined)
         .then(() => {
           console.log('[WebSocket] Reconnected successfully');
         })

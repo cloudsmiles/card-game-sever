@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 
+	"card-game-server/backend/internal/auth"
 	"card-game-server/backend/internal/room"
 	"card-game-server/backend/internal/types"
 
@@ -28,17 +30,33 @@ func WSHandler(w http.ResponseWriter, r *http.Request) {
 	var currentRoomID string = ""
 	send := make(chan types.Message, 256)
 
-	playerID = r.URL.Query().Get("player") // 客户端传 player=xxx
-	if playerID == "" {
-		playerID = "player_" + randomString(6)
+	// 优先使用 token 认证
+	tokenStr := r.URL.Query().Get("token")
+	if tokenStr != "" {
+		claims, err := auth.ParseToken(tokenStr)
+		if err != nil {
+			conn.WriteJSON(types.Message{
+				Type: types.Error,
+				Data: types.ErrorData{Code: 401, Message: "token 无效或已过期"},
+			})
+			conn.Close()
+			return
+		}
+		playerID = "user_" + strconv.FormatUint(uint64(claims.UserID), 10)
+		nickname := claims.Nickname
+		room.GlobalNicknameTracker.SetNickname(playerID, nickname)
+	} else {
+		// 向后兼容：使用 player 参数
+		playerID = r.URL.Query().Get("player")
+		if playerID == "" {
+			playerID = "player_" + randomString(6)
+		}
+		nickname := r.URL.Query().Get("nickname")
+		if nickname == "" {
+			nickname = playerID
+		}
+		room.GlobalNicknameTracker.SetNickname(playerID, nickname)
 	}
-
-	// 获取昵称
-	nickname := r.URL.Query().Get("nickname")
-	if nickname == "" {
-		nickname = playerID
-	}
-	room.GlobalNicknameTracker.SetNickname(playerID, nickname)
 
 	// 如果玩家已有连接，踢掉旧连接
 	if kickExistingConnection(playerID) {

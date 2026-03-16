@@ -10,7 +10,7 @@ import { useChatStore } from '@/stores/chatStore';
 interface WebSocketContextValue {
   service: WebSocketService;
   isConnected: boolean;
-  connect: (playerId: string, nickname: string) => Promise<void>;
+  connect: (playerId: string, nickname: string, token?: string) => Promise<void>;
   disconnect: () => void;
 }
 
@@ -154,7 +154,7 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     };
   }, []);
 
-  const connect = async (playerId: string, nickname: string): Promise<void> => {
+  const connect = async (playerId: string, nickname: string, token?: string): Promise<void> => {
     try {
       connectionStore.setStatus('connecting');
       connectionStore.setPlayer(playerId, nickname);
@@ -165,7 +165,7 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       gameStore.resetGame();
       chatStore.clearMessages();
       
-      await wsService.connect(playerId, nickname);
+      await wsService.connect(playerId, nickname, token);
     } catch (error: any) {
       connectionStore.setStatus('disconnected');
       connectionStore.setError(error.message || 'Failed to connect');

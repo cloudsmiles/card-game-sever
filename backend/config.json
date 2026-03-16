@@ -1,0 +1,22 @@
+{
+  "server": {
+    "port": "8080"
+  },
+  "mysql": {
+    "host": "127.0.0.1",
+    "port": "3306",
+    "user": "root",
+    "password": "root123456",
+    "dbname": "card_game"
+  },
+  "jwt": {
+    "secret": "your-jwt-secret-change-me-in-production",
+    "expire_hour": 168
+  },
+  "wechat": {
+    "h5_app_id": "",
+    "h5_app_secret": "",
+    "open_app_id": "",
+    "open_app_secret": ""
+  }
+}
