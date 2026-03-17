@@ -220,6 +220,9 @@ func (r *Room) handleDisconnectTimeout() {
 	// 清空 OfflinePlayers 映射
 	r.OfflinePlayers = make(map[string]time.Time)
 
+	// 如果只剩机器人，清理所有机器人
+	r.cleanupBotsIfNoHumans()
+
 	// 如果房间空了，清理资源
 	if len(r.Players) == 0 {
 		if r.disconnectTimer != nil {
@@ -232,22 +235,39 @@ func (r *Room) handleDisconnectTimeout() {
 	}
 }
 
+// UpdatePlayerSend 更新玩家的发送通道（用于同一playerID重新连接时）
+func (r *Room) UpdatePlayerSend(playerID string, sendChan chan types.Message) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if client, exists := r.Players[playerID]; exists {
+		client.Send = sendChan
+		log.Printf("玩家 [%s] 连接通道已更新 [房间：%s]", playerID, r.ID)
+		// 广播房间状态让新连接获取最新状态
+		r.broadcastRoomStateWithMessage(fmt.Sprintf("玩家 %s 已重新连接", GlobalNicknameTracker.GetNickname(playerID)))
+	}
+}
+
 // 玩家重连
 func (r *Room) ReconnectPlayer(playerID string, sendChan chan types.Message) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// 检查是否是断线玩家
+	// 检查是否是断线玩家（包括被踢标记的）
 	if _, wasOffline := r.OfflinePlayers[playerID]; !wasOffline {
 		return fmt.Errorf("玩家未断线或不在房间中")
 	}
 
-	// 更新客户端连接
-	if client, exists := r.Players[playerID]; exists {
-		client.Send = sendChan
+	// 检查玩家是否在房间中
+	client, exists := r.Players[playerID]
+	if !exists {
+		return fmt.Errorf("玩家不在房间中")
 	}
 
-	// 移除断线标记
+	// 更新客户端连接
+	client.Send = sendChan
+
+	// 移除断线标记（如果有的话）
 	delete(r.OfflinePlayers, playerID)
 
 	// 主动发送当前游戏状态给重连玩家
@@ -332,6 +352,19 @@ func (r *Room) RemovePlayer(playerID string) bool {
 		for botID := range r.Bots {
 			r.Ready[botID] = true
 		}
+
+		// 清理所有断线玩家（游戏已结束，不再需要等待重连）
+		for offlinePlayerID := range r.OfflinePlayers {
+			if offClient, exists := r.Players[offlinePlayerID]; exists && offClient.SeatNumber >= 0 {
+				delete(r.Seats, offClient.SeatNumber)
+			}
+			delete(r.Players, offlinePlayerID)
+			delete(r.Ready, offlinePlayerID)
+			delete(r.lastAction, offlinePlayerID)
+			GlobalPlayerTracker.RemovePlayer(offlinePlayerID)
+			GlobalNicknameTracker.RemoveNickname(offlinePlayerID)
+			log.Printf("断线玩家 [%s] 已从房间移除 [房间：%s]", offlinePlayerID, r.ID)
+		}
 		r.OfflinePlayers = make(map[string]time.Time)
 	}
 
@@ -349,28 +382,7 @@ func (r *Room) RemovePlayer(playerID string) bool {
 	delete(r.Bots, playerID)
 
 	// 如果只剩机器人，清理所有机器人
-	hasHuman := false
-	for pid := range r.Players {
-		if !r.Bots[pid] {
-			hasHuman = true
-			break
-		}
-	}
-	if !hasHuman && len(r.Players) > 0 {
-		for botID := range r.Bots {
-			if client, exists := r.Players[botID]; exists {
-				if client.SeatNumber >= 0 {
-					delete(r.Seats, client.SeatNumber)
-				}
-				close(client.Send)
-			}
-			delete(r.Players, botID)
-			delete(r.Ready, botID)
-			delete(r.Bots, botID)
-			GlobalPlayerTracker.RemovePlayer(botID)
-			GlobalNicknameTracker.RemoveNickname(botID)
-		}
-	}
+	r.cleanupBotsIfNoHumans()
 
 	// 广播房间状态变更（包含玩家离开）
 	r.broadcastRoomStateWithMessage(fmt.Sprintf("玩家 %s 离开了房间", playerID))
@@ -387,6 +399,36 @@ func (r *Room) RemovePlayer(playerID string) bool {
 		go GlobalManager.RemoveRoom(r.ID)
 	}
 	return isEmpty
+}
+
+// cleanupBotsIfNoHumans 如果房间内只剩机器人，清理所有机器人（调用者必须持有 r.mu 写锁）
+func (r *Room) cleanupBotsIfNoHumans() {
+	if len(r.Players) == 0 {
+		return
+	}
+	hasHuman := false
+	for pid := range r.Players {
+		if !r.Bots[pid] {
+			hasHuman = true
+			break
+		}
+	}
+	if !hasHuman {
+		log.Printf("房间 [%s] 只剩机器人，清理所有机器人", r.ID)
+		for botID := range r.Bots {
+			if client, exists := r.Players[botID]; exists {
+				if client.SeatNumber >= 0 {
+					delete(r.Seats, client.SeatNumber)
+				}
+				close(client.Send)
+			}
+			delete(r.Players, botID)
+			delete(r.Ready, botID)
+			delete(r.Bots, botID)
+			GlobalPlayerTracker.RemovePlayer(botID)
+			GlobalNicknameTracker.RemoveNickname(botID)
+		}
+	}
 }
 
 // ProcessRoomAction 统一处理房间内操作

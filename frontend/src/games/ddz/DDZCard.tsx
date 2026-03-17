@@ -4,7 +4,9 @@ import { valueToRank } from './types';
 
 interface DDZCardProps {
   value: number;
-  /** Index in hand, used to assign a visual suit */
+  /** Suit string from backend: "1"=♦, "2"=♣, "3"=♥, "4"=♠ */
+  suit?: string;
+  /** Index in hand (fallback for suit display) */
   index?: number;
   selected?: boolean;
   onClick?: () => void;
@@ -17,7 +19,14 @@ const cardSizes = {
   medium: { width: 52, height: 72, rankSize: '0.75rem', suitSize: '1.2rem' },
 };
 
-const suits = ['♠', '♥', '♣', '♦'] as const;
+/** Map backend suit string to display symbol */
+const suitSymbol: Record<string, string> = {
+  '4': '♠',
+  '3': '♥',
+  '2': '♣',
+  '1': '♦',
+};
+
 const suitColors: Record<string, string> = {
   '♠': '#1A1A2E',
   '♥': '#E63946',
@@ -25,15 +34,16 @@ const suitColors: Record<string, string> = {
   '♦': '#E63946',
 };
 
-/** Deterministically pick a suit symbol based on value + index */
-const getSuit = (value: number, index: number): string => {
+/** Get suit symbol from backend suit string or fallback */
+const getSuit = (value: number, backendSuit?: string): string => {
   if (value >= 16) return ''; // Jokers have no suit
-  return suits[(value + index) % 4];
+  if (backendSuit && suitSymbol[backendSuit]) return suitSymbol[backendSuit];
+  return '♠'; // fallback
 };
 
 export const DDZCard: React.FC<DDZCardProps> = ({
   value,
-  index = 0,
+  suit: backendSuit,
   selected = false,
   onClick,
   faceDown = false,
@@ -42,7 +52,7 @@ export const DDZCard: React.FC<DDZCardProps> = ({
   const { width, height, rankSize, suitSize } = cardSizes[size];
   const rank = valueToRank(value);
   const isJoker = value >= 16;
-  const suit = getSuit(value, index);
+  const suit = getSuit(value, backendSuit);
   const color = isJoker
     ? value === 17 ? '#E63946' : '#1A1A2E'
     : suitColors[suit] || '#1A1A2E';

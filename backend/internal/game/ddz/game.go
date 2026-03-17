@@ -369,7 +369,7 @@ func (g *DdzGame) HandleTurnTimeout(playerID string) error {
 		// 新回合必须出牌，不能pass：自动出最小的一张牌
 		hand := g.hands[playerID]
 		if len(hand) > 0 {
-			smallest := hand[0]
+			smallest := hand[len(hand)-1] // 降序排列，最小在末尾
 			action := interfaces.Action{
 				Type: "play_cards",
 				Data: []interface{}{map[string]interface{}{"value": float64(smallest.Value)}},
@@ -452,13 +452,16 @@ func (g *DdzGame) GetStateForPlayer(playerID string) interface{} {
 	// 获取基础状态
 	baseState := g.GetState().(map[string]interface{})
 
-	// 添加该玩家的手牌
+	// 添加该玩家的手牌（包含花色信息）
 	if hand, exists := g.hands[playerID]; exists {
-		vals := make([]int, len(hand))
+		cards := make([]map[string]interface{}, len(hand))
 		for i, c := range hand {
-			vals[i] = c.Value
+			cards[i] = map[string]interface{}{
+				"Value": c.Value,
+				"Suit":  c.Suit,
+			}
 		}
-		baseState["my_hand"] = vals
+		baseState["my_hand"] = cards
 	}
 
 	return baseState
@@ -472,16 +475,19 @@ func (g *DdzGame) getCurrentSeat() int {
 	return g.outTurn
 }
 
-func (g *DdzGame) bottomCardsValues() []int {
-	vals := make([]int, len(g.bottomCards))
+func (g *DdzGame) bottomCardsValues() []map[string]interface{} {
+	cards := make([]map[string]interface{}, len(g.bottomCards))
 	for i, c := range g.bottomCards {
-		vals[i] = c.Value
+		cards[i] = map[string]interface{}{
+			"Value": c.Value,
+			"Suit":  c.Suit,
+		}
 	}
-	return vals
+	return cards
 }
 
 // bottomCardsForState 只在地主确定后才返回底牌信息
-func (g *DdzGame) bottomCardsForState() []int {
+func (g *DdzGame) bottomCardsForState() []map[string]interface{} {
 	if g.landlord == "" {
 		// 叫地主阶段，不暴露底牌
 		return nil
@@ -889,7 +895,8 @@ func getMinCardValue(cards Hand) int {
 	if len(cards) == 0 {
 		return 0
 	}
-	return cards[0].Value
+	// 手牌按降序排列，最小值在末尾
+	return cards[len(cards)-1].Value
 }
 
 func removeCards(hand Hand, played Hand) Hand {
@@ -911,11 +918,32 @@ func removeCards(hand Hand, played Hand) Hand {
 	return result
 }
 
-// 排序：大王 > 小王 > A > K > ... > 3
+// 排序：从大到小，同点数按花色从大到小（黑桃>红心>梅花>方块）
 func (h Hand) Len() int      { return len(h) }
 func (h Hand) Swap(i, j int) { h[i], h[j] = h[j], h[i] }
 func (h Hand) Less(i, j int) bool {
-	return cardValueForSort(h[i].Value) < cardValueForSort(h[j].Value)
+	vi := cardValueForSort(h[i].Value)
+	vj := cardValueForSort(h[j].Value)
+	if vi != vj {
+		return vi > vj // 降序：大的在前
+	}
+	// 同点数按花色降序：4(♠) > 3(♥) > 2(♣) > 1(♦)
+	return suitOrder(h[i].Suit) > suitOrder(h[j].Suit)
+}
+
+func suitOrder(suit string) int {
+	switch suit {
+	case "4": // ♠ 黑桃
+		return 4
+	case "3": // ♥ 红心
+		return 3
+	case "2": // ♣ 梅花
+		return 2
+	case "1": // ♦ 方块
+		return 1
+	default:
+		return 0
+	}
 }
 
 func cardValueForSort(v int) int {
@@ -1000,11 +1028,18 @@ func (g *DdzGame) botCallAction() *interfaces.Action {
 
 // botPlayAction 机器人出牌策略
 func (g *DdzGame) botPlayAction(stateMap map[string]interface{}) *interfaces.Action {
-	myHandRaw, ok := stateMap["my_hand"].([]int)
+	// my_hand 现在是 []map[string]interface{} 格式
+	myHandRaw, ok := stateMap["my_hand"].([]map[string]interface{})
 	if !ok || len(myHandRaw) == 0 {
 		return &interfaces.Action{Type: "pass"}
 	}
-	myHand := myHandRaw
+	// 提取 value 列表（已按降序排列）
+	myHand := make([]int, len(myHandRaw))
+	for i, card := range myHandRaw {
+		if v, ok := card["Value"].(int); ok {
+			myHand[i] = v
+		}
+	}
 
 	// 解析上一手牌
 	lastPlayRaw := stateMap["last_play"]
@@ -1021,11 +1056,12 @@ func (g *DdzGame) botPlayAction(stateMap map[string]interface{}) *interfaces.Act
 		}
 	}
 
-	// 新回合，出最小的单牌
+	// 新回合，出最小的单牌（降序排列，最小在末尾）
 	if lastType == "" {
+		smallest := myHand[len(myHand)-1]
 		return &interfaces.Action{
 			Type: "play_cards",
-			Data: []interface{}{map[string]interface{}{"value": float64(myHand[0])}},
+			Data: []interface{}{map[string]interface{}{"value": float64(smallest)}},
 		}
 	}
 

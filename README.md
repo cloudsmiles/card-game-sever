@@ -4,7 +4,7 @@
 
 ## 功能特性
 
-- **多游戏支持**：斗地主(DDZ)、麻将(Mahjong)、榴莲忘返(Durian)、简易卡牌(Simple)
+- **多游戏支持**：斗地主(DDZ)、麻将(Mahjong)、榴莲忘返(Durian)
 - **实时通信**：基于 WebSocket 的全双工实时通信
 - **房间管理**：创建/加入房间、玩家准备、选座系统
 - **断线重连**：游戏中断线保护，支持重连恢复
@@ -56,10 +56,6 @@ card-game-server/
 │   │       ├── error.go     # 错误类型
 │   │       └── room_action.go
 │   ├── main.go              # 入口文件
-│   ├── client.html          # 简易游戏测试客户端
-│   ├── ddz-client.html      # 斗地主测试客户端
-│   ├── mahjong-client.html  # 麻将测试客户端
-│   ├── durian-client.html   # 榴莲忘返测试客户端
 │   ├── go.mod
 │   └── go.sum
 ├── frontend/                # React 前端
@@ -100,15 +96,6 @@ cd card-game-server/frontend
 npm install
 npm run dev
 ```
-
-### 测试客户端
-
-后端自带简易 HTML 测试客户端：
-
-- 简易游戏：`http://localhost:8080/client.html`
-- 斗地主：`http://localhost:8080/ddz-client.html`
-- 麻将：`http://localhost:8080/mahjong-client.html`
-- 榴莲忘返：`http://localhost:8080/durian-client.html`
 
 ## WebSocket 协议
 
@@ -237,11 +224,11 @@ case "your_game":
 - [ ] 支持微信登录
 - [ ] 玩家积分系统与排行榜
 - [ ] 游戏回放/观战模式
+- [x] 游戏内表情包快捷发送
+- [ ] 房间密码/私密房间
 
 ### v1.3.0
 - [ ] 音效与动画增强（出牌音效、结算动画）
-- [ ] 房间密码/私密房间
-- [ ] 游戏内表情包快捷发送
 - [ ] 移动端适配优化
 
 ## 许可证

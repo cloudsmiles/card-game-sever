@@ -6,6 +6,7 @@ import { useRoomStore } from '@/stores/roomStore';
 import { useGameStore } from '@/stores/gameStore';
 import { useUIStore } from '@/stores/uiStore';
 import { useChatStore } from '@/stores/chatStore';
+import { router } from '@/router';
 
 interface WebSocketContextValue {
   service: WebSocketService;
@@ -71,8 +72,18 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         }))
       );
 
+      // 自动跳转：如果当前不在该房间页面，自动导航过去
+      const currentPath = window.location.pathname;
+      const roomPath = `/room/${data.room_id}`;
+      if (data.room_id && !currentPath.startsWith(roomPath)) {
+        try {
+          router.navigate(roomPath);
+        } catch {
+          // router 可能还没初始化
+        }
+      }
+
       // Show room messages in chat, but filter out game-over messages
-      // (game over is already shown via notification + in-game UI)
       if (data.message && !data.message.startsWith('游戏结束')) {
         chatStore.addMessage({
           playerId: 'system',
@@ -127,6 +138,22 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       });
     };
 
+    const onKicked = () => {
+      console.log('[WebSocket] Kicked by another login');
+      // 清理所有状态
+      connectionStore.reset();
+      userStore.clearUser();
+      roomStore.leaveRoom();
+      gameStore.resetGame();
+      chatStore.clearMessages();
+      setIsConnected(false);
+      uiStore.addNotification({
+        type: 'error',
+        message: '您的账号在其他地方登录，当前连接已断开',
+        duration: 8000,
+      });
+    };
+
     // Register all handlers
     wsService.on('connected', onConnected);
     wsService.on('disconnected', onDisconnected);
@@ -138,6 +165,7 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     wsService.on('game_over', onGameOver);
     wsService.on('room_left', onRoomLeft);
     wsService.on('chat', onChat);
+    wsService.on('kicked', onKicked);
 
     return () => {
       // Cleanup: remove all handlers to prevent duplicates on re-mount
@@ -151,6 +179,7 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       wsService.off('game_over', onGameOver);
       wsService.off('room_left', onRoomLeft);
       wsService.off('chat', onChat);
+      wsService.off('kicked', onKicked);
     };
   }, []);
 

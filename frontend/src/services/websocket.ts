@@ -162,7 +162,12 @@ export class WebSocketService {
         this.emit(event, content);
         this.emit('broadcast', { event, content });
       } else if (message.type === 'error') {
-        const errorData = message.data as { code: string; message: string };
+        const errorData = message.data as { code: number; message: string };
+        // 被踢下线：停止重连
+        if (errorData.code === 4001) {
+          this.shouldReconnect = false;
+          this.emit('kicked', errorData);
+        }
         this.emit('error', errorData);
       } else {
         this.emit(message.type, message.data);

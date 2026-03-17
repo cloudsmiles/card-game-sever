@@ -79,7 +79,7 @@ export const DDZGame: React.FC = () => {
 
   const handlePlay = () => {
     if (!currentRoomId || selectedCards.size === 0) return;
-    const cardsToPlay = Array.from(selectedCards).map((idx) => ({ value: myHand[idx] }));
+    const cardsToPlay = Array.from(selectedCards).map((idx) => ({ value: myHand[idx].Value }));
     sendGameAction(currentRoomId, 'play_cards', { card: cardsToPlay });
     setSelectedCards(new Set());
   };

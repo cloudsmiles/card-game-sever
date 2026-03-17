@@ -5,13 +5,29 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
-import { Chat, Send, Close } from '@mui/icons-material';
+import { Chat, Send, Close, EmojiEmotions } from '@mui/icons-material';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useUIStore } from '@/stores/uiStore';
 import { useChatStore } from '@/stores/chatStore';
 import { useRoomStore } from '@/stores/roomStore';
 import { useUserStore } from '@/stores/userStore';
 import { useWebSocket } from '@/hooks/useWebSocket';
+
+// 内置快捷消息
+const QUICK_MESSAGES = [
+  { emoji: '👍', text: '厉害' },
+  { emoji: '😂', text: '哈哈哈' },
+  { emoji: '🎉', text: '赢了' },
+  { emoji: '😭', text: '太难了' },
+  { emoji: '🤔', text: '让我想想' },
+  { emoji: '⏰', text: '快点啊' },
+  { emoji: '🍀', text: '好运' },
+  { emoji: '💪', text: '加油' },
+  { emoji: '😎', text: '稳了' },
+  { emoji: '🙏', text: '求放过' },
+  { emoji: '😡', text: '气死了' },
+  { emoji: '👋', text: '大家好' },
+];
 
 interface ChatPanelProps {
   roomOnly?: boolean;
@@ -25,8 +41,10 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ roomOnly = false }) => {
   const { sendChat } = useWebSocket();
 
   const [message, setMessage] = useState('');
+  const [emojiOpen, setEmojiOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatRef = useRef<HTMLDivElement>(null);
+  const emojiRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -42,11 +60,24 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ roomOnly = false }) => {
     const handleClickOutside = (e: MouseEvent) => {
       if (chatRef.current && !chatRef.current.contains(e.target as Node)) {
         toggleChat();
+        setEmojiOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [chatOpen, toggleChat]);
+
+  // 点击表情面板外关闭
+  useEffect(() => {
+    if (!emojiOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (emojiRef.current && !emojiRef.current.contains(e.target as Node)) {
+        setEmojiOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [emojiOpen]);
 
   if (roomOnly && !currentRoomId) {
     return null;
@@ -56,6 +87,12 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ roomOnly = false }) => {
     if (!message.trim() || !currentRoomId) return;
     sendChat(currentRoomId, message.trim());
     setMessage('');
+  };
+
+  const handleQuickSend = (emoji: string, text: string) => {
+    if (!currentRoomId) return;
+    sendChat(currentRoomId, `${emoji} ${text}`);
+    setEmojiOpen(false);
   };
 
   // 只显示最近的消息（浮层模式下不需要太多历史）
@@ -181,15 +218,78 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ roomOnly = false }) => {
                           {msg.nickname}
                         </Typography>
                       )}
-                      <Typography variant="body2" sx={{ fontSize: '0.85rem', lineHeight: 1.3 }}>
-                        {msg.content}
-                      </Typography>
+                      {/* 快捷消息：大号 emoji 显示 */}
+                      {QUICK_MESSAGES.some((qm) => msg.content === `${qm.emoji} ${qm.text}`) ? (
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                          <Typography sx={{ fontSize: '1.5rem', lineHeight: 1 }}>
+                            {msg.content.split(' ')[0]}
+                          </Typography>
+                          <Typography variant="body2" sx={{ fontSize: '0.85rem', lineHeight: 1.3 }}>
+                            {msg.content.split(' ').slice(1).join(' ')}
+                          </Typography>
+                        </Box>
+                      ) : (
+                        <Typography variant="body2" sx={{ fontSize: '0.85rem', lineHeight: 1.3 }}>
+                          {msg.content}
+                        </Typography>
+                      )}
                     </Box>
                   </Box>
                 );
               })}
               <div ref={messagesEndRef} />
             </Box>
+
+            {/* 快捷表情面板 */}
+            <AnimatePresence>
+              {emojiOpen && (
+                <Box
+                  ref={emojiRef}
+                  component={motion.div}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 10 }}
+                  transition={{ duration: 0.15 }}
+                  sx={{
+                    px: 2,
+                    py: 1.5,
+                    bgcolor: 'rgba(0,0,0,0.75)',
+                    backdropFilter: 'blur(8px)',
+                    pointerEvents: 'auto',
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(4, 1fr)',
+                    gap: 0.5,
+                  }}
+                >
+                  {QUICK_MESSAGES.map((qm) => (
+                    <Box
+                      key={qm.text}
+                      component={motion.div}
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => handleQuickSend(qm.emoji, qm.text)}
+                      sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 0.5,
+                        px: 1,
+                        py: 0.5,
+                        borderRadius: 1.5,
+                        cursor: 'pointer',
+                        bgcolor: 'rgba(255,255,255,0.08)',
+                        '&:hover': { bgcolor: 'rgba(255,255,255,0.15)' },
+                        transition: 'background 0.15s',
+                      }}
+                    >
+                      <Typography sx={{ fontSize: '1.1rem', lineHeight: 1 }}>{qm.emoji}</Typography>
+                      <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.85)', fontSize: '0.7rem', whiteSpace: 'nowrap' }}>
+                        {qm.text}
+                      </Typography>
+                    </Box>
+                  ))}
+                </Box>
+              )}
+            </AnimatePresence>
 
             {/* 底部输入框 */}
             <Box
@@ -204,6 +304,13 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ roomOnly = false }) => {
                 pointerEvents: 'auto',
               }}
             >
+              <IconButton
+                size="small"
+                onClick={() => setEmojiOpen(!emojiOpen)}
+                sx={{ color: emojiOpen ? 'primary.main' : 'rgba(255,255,255,0.6)' }}
+              >
+                <EmojiEmotions fontSize="small" />
+              </IconButton>
               <TextField
                 fullWidth
                 size="small"

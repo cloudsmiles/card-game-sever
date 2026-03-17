@@ -61,6 +61,16 @@ func WSHandler(w http.ResponseWriter, r *http.Request) {
 	// 如果玩家已有连接，踢掉旧连接
 	if kickExistingConnection(playerID) {
 		log.Printf("玩家 [%s] 重新登录，已踢掉旧连接", playerID)
+		// 旧连接的 defer 会因为 isCurrentConn==false 而跳过清理，
+		// 所以这里主动标记玩家为断线，确保 ReconnectPlayer 能正常工作
+		if existingRoomID, exists := room.GlobalPlayerTracker.GetPlayerRoom(playerID); exists {
+			if roomObj, err := room.GlobalManager.GetRoom(existingRoomID); err == nil {
+				if roomObj.State == types.RoomPlaying {
+					roomObj.MarkPlayerOffline(playerID)
+					log.Printf("已主动标记被踢玩家 [%s] 为断线状态 [房间：%s]", playerID, existingRoomID)
+				}
+			}
+		}
 		// 等一小段时间让旧连接清理完成
 		time.Sleep(100 * time.Millisecond)
 	}
@@ -69,14 +79,21 @@ func WSHandler(w http.ResponseWriter, r *http.Request) {
 	kickedChan := registerPlayerConnection(playerID, conn)
 	log.Printf("玩家已连接 [玩家: %s]", playerID)
 
-	// 检查是否是断线重连
+	// 检查是否是断线重连（同一playerID重新连接）
 	if existingRoomID, exists := room.GlobalPlayerTracker.GetPlayerRoom(playerID); exists {
 		roomObj, err := room.GlobalManager.GetRoom(existingRoomID)
-		if err == nil && roomObj.State == types.RoomPlaying {
-			// 尝试重连
-			if reconnectErr := roomObj.ReconnectPlayer(playerID, send); reconnectErr == nil {
+		if err == nil {
+			if roomObj.State == types.RoomPlaying {
+				// 游戏进行中：重连
+				if reconnectErr := roomObj.ReconnectPlayer(playerID, send); reconnectErr == nil {
+					currentRoomID = existingRoomID
+					log.Printf("玩家 [%s] 断线重连成功 [房间：%s]", playerID, existingRoomID)
+				}
+			} else {
+				// 等待中：更新连接通道，恢复房间
+				roomObj.UpdatePlayerSend(playerID, send)
 				currentRoomID = existingRoomID
-				log.Printf("玩家 [%s] 断线重连成功 [房间：%s]", playerID, existingRoomID)
+				log.Printf("玩家 [%s] 重新连接到等待中的房间 [房间：%s]", playerID, existingRoomID)
 			}
 		}
 	}

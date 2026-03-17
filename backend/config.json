@@ -14,8 +14,8 @@
     "expire_hour": 168
   },
   "wechat": {
-    "h5_app_id": "",
-    "h5_app_secret": "",
+    "h5_app_id": "wx3ce6ba3daf4a8480",
+    "h5_app_secret": "85746b46c9b5a7d09a22f2217c4e5585",
     "open_app_id": "",
     "open_app_secret": ""
   }

@@ -19,14 +19,20 @@ export interface DDZPlayerInfo {
   hand_count: number;
 }
 
+// Backend card object with suit info
+export interface CardObj {
+  Value: number;
+  Suit: string; // "1"=♦, "2"=♣, "3"=♥, "4"=♠, "小王"/"大王"
+}
+
 export interface LastPlay {
   Type: string;
-  Cards: Array<{ Value: number }>;
+  Cards: CardObj[];
 }
 
 export interface PlayerAction {
   type: 'play' | 'pass' | 'call';
-  cards?: Array<{ Value: number }>;
+  cards?: CardObj[];
   score?: number;
 }
 
@@ -44,8 +50,8 @@ export interface DDZServerState {
   game_over: boolean;
   winner: string;
   hand_counts: Record<string, number>;
-  bottom: number[] | null;
-  my_hand: number[];
+  bottom: CardObj[] | null;
+  my_hand: CardObj[];
   turn_deadline: number; // Unix毫秒时间戳
 }
 

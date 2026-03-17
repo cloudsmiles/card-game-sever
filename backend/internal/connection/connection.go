@@ -1,6 +1,7 @@
 package connection
 
 import (
+	"card-game-server/backend/internal/types"
 	"log"
 	"sync"
 	"time"
@@ -31,6 +32,11 @@ func kickExistingConnection(playerID string) bool {
 	defer connectedPlayersMu.Unlock()
 	if existing, ok := connectedPlayers[playerID]; ok && existing != nil {
 		log.Printf("踢掉玩家 [%s] 的旧连接", playerID)
+		// 先发送被踢通知，让前端知道不要重连
+		existing.conn.WriteJSON(types.Message{
+			Type: types.Error,
+			Data: types.ErrorData{Code: 4001, Message: "您的账号在其他地方登录"},
+		})
 		close(existing.send) // 通知旧连接关闭
 		existing.conn.Close()
 		delete(connectedPlayers, playerID)

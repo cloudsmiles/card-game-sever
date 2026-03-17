@@ -1,12 +1,12 @@
 import { Box, Typography, Avatar, Chip } from '@mui/material';
 import { motion } from 'framer-motion';
 import { DDZCard } from './DDZCard';
-import type { DDZPlayerInfo, LastPlay, PlayerAction } from './types';
+import type { DDZPlayerInfo, LastPlay, PlayerAction, CardObj } from './types';
 
 interface DDZBoardProps {
   leftPlayer: DDZPlayerInfo | null;
   rightPlayer: DDZPlayerInfo | null;
-  bottomCards: number[] | null;
+  bottomCards: CardObj[] | null;
   lastPlay: LastPlay | null;
   lastActions: Record<string, PlayerAction>;
   currentTurn: string;
@@ -94,7 +94,7 @@ const PlayerSlot: React.FC<{
           ) : lastAction.type === 'play' && lastAction.cards ? (
             <Box sx={{ display: 'flex', gap: 0.3, flexWrap: 'wrap', justifyContent: 'center' }}>
               {lastAction.cards.map((card, i) => (
-                <DDZCard key={i} value={card.Value} index={i} size="small" />
+                <DDZCard key={i} value={card.Value} suit={card.Suit} index={i} size="small" />
               ))}
             </Box>
           ) : null}
@@ -123,7 +123,7 @@ export const DDZBoard: React.FC<DDZBoardProps> = ({
           底牌:
         </Typography>
         {bottomCards && bottomCards.length > 0 ? (
-          bottomCards.map((v, i) => <DDZCard key={i} value={v} index={i} size="small" />)
+          bottomCards.map((card, i) => <DDZCard key={i} value={card.Value} suit={card.Suit} index={i} size="small" />)
         ) : (
           <>
             <DDZCard value={0} faceDown size="small" />
@@ -180,7 +180,7 @@ export const DDZBoard: React.FC<DDZBoardProps> = ({
               ) : myAction.type === 'play' && myAction.cards ? (
                 <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center', flexWrap: 'wrap' }}>
                   {myAction.cards.map((card, i) => (
-                    <DDZCard key={i} value={card.Value} index={i} size="small" />
+                    <DDZCard key={i} value={card.Value} suit={card.Suit} index={i} size="small" />
                   ))}
                 </Box>
               ) : null}

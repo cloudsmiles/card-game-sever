@@ -14,6 +14,7 @@ import { motion } from 'framer-motion';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { useUIStore } from '@/stores/uiStore';
 import { useAuthStore } from '@/stores/authStore';
+import { useRoomStore } from '@/stores/roomStore';
 import { authService } from '@/services/authService';
 import { QCardLogo } from '@/components/common';
 
@@ -33,6 +34,18 @@ export const ConnectPage: React.FC = () => {
   const { addNotification } = useUIStore();
   const { setAuth, isLoggedIn, token, user } = useAuthStore();
   const navigate = useNavigate();
+
+  // 连接成功后导航：等一小段时间让重连消息到达，如果已回到房间则跳转房间
+  const navigateAfterConnect = () => {
+    setTimeout(() => {
+      const roomId = useRoomStore.getState().currentRoomId;
+      if (roomId) {
+        navigate(`/room/${roomId}`);
+      } else {
+        navigate('/lobby');
+      }
+    }, 200);
+  };
 
   // 处理微信回调（URL 中带 code 参数）
   useEffect(() => {
@@ -57,7 +70,7 @@ export const ConnectPage: React.FC = () => {
       await connect(playerId, loginResp.user.nickname, loginResp.token);
 
       addNotification({ type: 'success', message: '微信登录成功！' });
-      navigate('/lobby');
+      navigateAfterConnect();
     } catch (error: any) {
       addNotification({ type: 'error', message: error.message || '微信登录失败' });
     } finally {
@@ -87,17 +100,13 @@ export const ConnectPage: React.FC = () => {
         await connect(playerId, loginResp.user.nickname, loginResp.token);
       } catch {
         // API 不可用时，回退到旧的直连模式
-        const stored = JSON.parse(localStorage.getItem('user-storage') || '{}');
-        const savedPlayerId = stored?.state?.playerId;
-        const savedNickname = stored?.state?.nickname;
-        const playerId = (savedPlayerId && savedNickname === nickname.trim())
-          ? savedPlayerId
-          : `player_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        // 昵称即身份：相同昵称视为同一玩家，后者踢掉前者
+        const playerId = `guest_${nickname.trim()}`;
         await connect(playerId, nickname.trim());
       }
 
       addNotification({ type: 'success', message: '连接成功！' });
-      navigate('/lobby');
+      navigateAfterConnect();
     } catch (error: any) {
       addNotification({ type: 'error', message: error.message || '连接失败，请重试' });
     } finally {
@@ -113,7 +122,7 @@ export const ConnectPage: React.FC = () => {
       const playerId = `user_${user.id}`;
       await connect(playerId, user.nickname, token);
       addNotification({ type: 'success', message: '连接成功！' });
-      navigate('/lobby');
+      navigateAfterConnect();
     } catch (error: any) {
       addNotification({ type: 'error', message: error.message || '连接失败' });
     } finally {

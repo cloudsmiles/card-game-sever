@@ -1,8 +1,9 @@
 import { Box } from '@mui/material';
 import { DDZCard } from './DDZCard';
+import type { CardObj } from './types';
 
 interface DDZHandProps {
-  cards: number[];
+  cards: CardObj[];
   selectedCards: Set<number>; // indices
   onCardClick: (index: number) => void;
   disabled?: boolean;
@@ -24,10 +25,11 @@ export const DDZHand: React.FC<DDZHandProps> = ({
         py: 1,
       }}
     >
-      {cards.map((value, index) => (
+      {cards.map((card, index) => (
         <DDZCard
-          key={`${value}-${index}`}
-          value={value}
+          key={`${card.Value}-${card.Suit}-${index}`}
+          value={card.Value}
+          suit={card.Suit}
           index={index}
           selected={selectedCards.has(index)}
           onClick={disabled ? undefined : () => onCardClick(index)}
